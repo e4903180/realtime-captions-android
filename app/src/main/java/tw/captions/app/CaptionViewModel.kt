@@ -40,6 +40,8 @@ data class UiState(
     val anthropicKeyHint: String? = null,
     val anthropicTesting: Boolean = false,
     val anthropicTestMessage: String? = null,
+    /** Shown in yellow: the cloud engine failed and captions continue with the offline engine. */
+    val cloudNotice: String? = null,
     /** Shown in yellow under the captions when proof-reading is retrying or paused. */
     val proofreadNotice: String? = null,
     /** AI proof-reading this month: requests and estimated US dollars. */
@@ -284,6 +286,16 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         start()
     }
 
+    private fun offlineReady() = offlineEngines.firstOrNull { it.id == EngineCatalog.DEFAULT_ID }?.let { models.isInstalled(it.packs) } == true
+
+    /** The cloud engine stopped with an error: continue offline for now (the user's engine choice stays saved). */
+    private fun switchToOfflineForOutage(reason: String) {
+        if (!isPaid(_ui.value.engineId)) return
+        stop()
+        _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, cloudNotice = "$reason。先改用離線辨識，按停止再開始會重新連雲端。") }
+        start()
+    }
+
     /** From the limit notice: go back to the cloud engine and stop asking until the user presses stop. */
     fun continueCloudAnyway() {
         limitOverridden = true
@@ -296,6 +308,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun stopByUser() {
         limitOverridden = false
         stop()
+        if (_ui.value.cloudNotice != null) {
+            val saved = prefs.getString("engine", null)?.takeIf { id -> engines.any { it.id == id } } ?: EngineCatalog.DEFAULT_ID
+            _ui.update { it.copy(engineId = saved, cloudNotice = null) }
+        }
     }
 
     fun dismissLimitNotice() {
@@ -617,6 +633,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         }
                         return@collect
                     }
+                    if (event is tw.captions.core.TranscriptEvent.Error && isPaid(engine.id) && !event.message.contains("金鑰") && offlineReady()) {
+                        // No network or the service is down: keep captions going with the offline engine.
+                        viewModelScope.launch { switchToOfflineForOutage(event.message) }
+                        return@collect
+                    }
                     var captions = assembler.onEvent(event)
                     // Regroup every line by voice after each finished one, so earlier speaker
                     // mistakes get fixed too (ADR-027).
@@ -705,7 +726,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun selectEngine(id: String) {
         val wasRunning = job != null
         stop()
-        _ui.update { it.copy(engineId = id) }
+        _ui.update { it.copy(engineId = id, cloudNotice = null) }
         prefs.edit().putString("engine", id).apply()
         if (wasRunning) start()
     }
