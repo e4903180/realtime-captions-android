@@ -99,9 +99,11 @@ class AzureSpeechEngine(
             val msg = when (e.errorCode?.name) {
                 "AuthenticationFailure" -> "Azure 金鑰無效或區域不對，請到雲端服務設定檢查"
                 "ConnectionFailure", "ServiceTimeout" -> "連不上 Azure，請確認網路"
-                else -> null
+                "TooManyRequests", "Forbidden" -> "Azure 拒絕了請求（用量或額度已滿），請稍後再試或改用離線"
+                else -> "Azure 連線中斷（${e.errorCode?.name ?: "未知原因"}），請再按一次開始"
             }
-            if (msg != null) {
+            // EndOfStream is the normal end of a wav file; everything else stops captions, so say why.
+            if (e.reason == com.microsoft.cognitiveservices.speech.CancellationReason.Error) {
                 trySend(TranscriptEvent.Error(msg, recoverable = false))
                 close()
             }
