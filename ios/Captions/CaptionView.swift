@@ -40,11 +40,13 @@ struct CaptionView: View {
     @State private var showPicker = false
     @State private var showTranscripts = false
     @AppStorage(Proofreader.enabledKey) private var proofreadOn = false
+    /// 看電視模式 (ADR-032): only the newest few lines, large and centred, no speaker tags.
+    @AppStorage("tvMode") private var tvMode = false
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            captions
+            if tvMode { tvCaptions } else { captions }
             status
             controls
         }
@@ -66,23 +68,74 @@ struct CaptionView: View {
 
     private var topBar: some View {
         let engine = EngineInfo.byId(model.engineId)
-        return Button { showPicker = true } label: {
-            HStack(spacing: 6) {
-                Image(systemName: engine.offline ? "iphone" : "cloud")
-                Text(engine.name).font(.system(size: 17, weight: .semibold))
-                Image(systemName: "chevron.down").font(.system(size: 13))
-                if model.budgetFallback {
-                    Text("已改用離線（雲端達上限）").font(.system(size: 14)).foregroundColor(.orange)
+        return HStack(spacing: 10) {
+            Button { showPicker = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: engine.offline ? "iphone" : "cloud")
+                    Text(engine.name).font(.system(size: 17, weight: .semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 13))
                 }
-                Spacer()
             }
-            .foregroundColor(textColor)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .accessibilityLabel("辨識引擎：\(engine.name)，點一下更換")
+            if model.budgetFallback {
+                Text("已改用離線（雲端達上限）").font(.system(size: 14)).foregroundColor(.orange).lineLimit(1)
+            }
+            Spacer()
+            Button { tvMode.toggle() } label: {
+                Label("看電視", systemImage: "tv")
+                    .font(.system(size: 15, weight: tvMode ? .bold : .regular))
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(tvMode ? stableColor.opacity(0.25) : Color.clear, in: Capsule())
+            }
+            .accessibilityLabel(tvMode ? "看電視模式開啟，點一下關閉" : "開啟看電視模式")
         }
-        .accessibilityLabel("辨識引擎：\(engine.name)，點一下更換")
+        .foregroundColor(textColor)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .sheet(isPresented: $showPicker) { EnginePickerView(model: model) }
         .sheet(isPresented: $showTranscripts) { TranscriptsView() }
+    }
+
+    /// Like subtitles on a TV: the newest lines at the bottom, nothing to scroll.
+    private var tvCaptions: some View {
+        let size = CGFloat(model.fontSize) * 1.25
+        let live = !model.stableText.isEmpty || !model.tentativeText.isEmpty
+        let shown = Array(model.lines.suffix(live && !model.continuesLastLine ? 2 : 3))
+        return VStack(spacing: size * 0.35) {
+            Spacer(minLength: 0)
+            if model.lines.isEmpty && !live {
+                Text(model.running ? "正在聽…" : "看電視模式：手機放在電視旁，按「開始」")
+                    .font(.system(size: 24)).foregroundColor(tentativeColor)
+            }
+            ForEach(shown) { line in
+                let current = model.continuesLastLine && line.id == model.lines.last?.id
+                tvLine(line.text, current: current, size: size)
+                    .opacity(current || line.id == shown.last?.id ? 1 : 0.7)
+            }
+            if live && !model.continuesLastLine { tvLine(nil, current: true, size: size) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .clipped()
+    }
+
+    private func tvLine(_ text: String?, current: Bool, size: CGFloat) -> some View {
+        Group {
+            if current {
+                let done = text.map { $0 + Self.joiner($0, model.stableText + model.tentativeText) } ?? ""
+                Text(done).foregroundColor(textColor)
+                    + Text(model.stableText).foregroundColor(stableColor)
+                    + Text(model.tentativeText).foregroundColor(tentativeColor)
+            } else {
+                Text(text ?? "").foregroundColor(textColor)
+            }
+        }
+        .font(.system(size: size, weight: .semibold))
+        .multilineTextAlignment(.center)
+        .lineSpacing(size * 0.2)
+        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var captions: some View {
