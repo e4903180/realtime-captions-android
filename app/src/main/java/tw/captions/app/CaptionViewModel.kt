@@ -33,6 +33,9 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** Saved transcripts, newest first (ADR-029). */
+    val transcripts: List<tw.captions.core.Transcript> = emptyList(),
+    val transcriptsEnabled: Boolean = true,
     /** 看電視: show everything (TV speech included) in a few large lines; filters pause (ADR-032). */
     val tvMode: Boolean = false,
     /** Background-speech filter: off (default), dim, or hide. */
@@ -89,6 +92,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val usageStore = tw.captions.app.settings.UsageStore(app)
 
+    private val transcriptStore = tw.captions.app.history.TranscriptStore(app)
+
     private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
 
     init {
@@ -115,7 +120,92 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         refreshKeys()
         loadPeople()
         _ui.update { it.copy(usage = usageStore.load(), usagePrices = usageStore.loadPrices(), today = usageStore.today()) }
+        _ui.update { it.copy(transcriptsEnabled = transcriptStore.enabled) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = transcriptStore.loadAll()
+            _ui.update { it.copy(transcripts = all) }
+        }
     }
+
+    // ---- Transcripts (ADR-029): every start…stop is saved on the phone ----
+
+    /** Follows the current recording; kept after stop so later corrections still reach it. */
+    private var recorder: tw.captions.core.TranscriptRecorder? = null
+    private var unsavedChanges = 0
+    private var lastSaveMs = 0L
+
+    private fun lineRows(): List<Triple<Long, String?, String>> =
+        _ui.value.captions.lines.mapIndexed { i, l ->
+            Triple(assembler.lineId(i), l.speakerName ?: if (l.background) "背景" else l.speaker?.label, l.text)
+        }
+
+    private fun beginTranscript(engineId: String) {
+        recorder = null
+        if (!transcriptStore.enabled) return
+        val name = EngineCatalog.byId(engineId)?.name ?: engineId
+        recorder = tw.captions.core.TranscriptRecorder(
+            id = java.util.UUID.randomUUID().toString(),
+            startedMs = System.currentTimeMillis(),
+            engine = name,
+            existing = lineRows().map { it.first to it.third },
+        )
+        unsavedChanges = 0
+        lastSaveMs = System.currentTimeMillis()
+    }
+
+    /** Called whenever caption lines change. Saves every 3 lines or 20 s, so a crash loses little. */
+    private fun recordLines() {
+        val r = recorder ?: return
+        val now = System.currentTimeMillis()
+        if (!r.update(lineRows(), now, recording = job != null)) return
+        unsavedChanges++
+        if (job == null || unsavedChanges >= 3 || now - lastSaveMs > 20_000) saveTranscript()
+    }
+
+    private fun saveTranscript() {
+        val t = recorder?.transcript ?: return
+        if (t.lines.isEmpty()) return
+        unsavedChanges = 0
+        lastSaveMs = System.currentTimeMillis()
+        _ui.update { s -> s.copy(transcripts = (listOf(t) + s.transcripts.filter { it.id != t.id }).sortedByDescending { it.startedMs }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(t) }
+    }
+
+    private fun finishTranscript() {
+        val r = recorder ?: return
+        r.update(lineRows(), System.currentTimeMillis(), recording = true)
+        r.finish(System.currentTimeMillis())
+        saveTranscript()
+    }
+
+    fun renameTranscript(id: String, title: String) {
+        val t = _ui.value.transcripts.firstOrNull { it.id == id } ?: return
+        val renamed = t.copy(title = title.trim().ifEmpty { null })
+        if (recorder?.transcript?.id == id) recorder?.rename(renamed.title)
+        _ui.update { s -> s.copy(transcripts = s.transcripts.map { if (it.id == id) renamed else it }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(renamed) }
+    }
+
+    fun deleteTranscript(id: String) {
+        if (recorder?.transcript?.id == id) recorder = null
+        _ui.update { s -> s.copy(transcripts = s.transcripts.filter { it.id != id }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.delete(id) }
+    }
+
+    fun deleteAllTranscripts() {
+        recorder = null
+        _ui.update { it.copy(transcripts = emptyList()) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.deleteAll() }
+    }
+
+    fun setTranscriptsEnabled(on: Boolean) {
+        transcriptStore.enabled = on
+        if (!on) recorder = null
+        _ui.update { it.copy(transcriptsEnabled = on) }
+    }
+
+    fun transcriptText(t: tw.captions.core.Transcript, srt: Boolean): String =
+        if (srt) t.srt() else tw.captions.app.history.TranscriptStore.plainText(t)
 
     // ---- Cloud usage (ADR-028): audio seconds sent to Azure, written every 10 s and on stop ----
 
@@ -206,6 +296,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         registry.add(name.trim(), voice)
         savePeople()
         _ui.update { it.copy(captions = assembler.nameLine(index, name.trim())) }
+        recordLines()
         // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
         if (first && !_ui.value.tvMode && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
     }
@@ -301,6 +392,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _ui.update { it.copy(running = true) }
+        beginTranscript(engine.id)
         if (EngineCatalog.byId(engine.id)?.paid == true) {
             cloudTimer?.cancel()
             cloudTimer = viewModelScope.launch {
@@ -320,6 +412,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                 engine.transcribe(RecognitionConfig(languageTag = "zh-TW")).collect { event ->
                     val captions = assembler.onEvent(event)
                     _ui.update { it.copy(captions = captions) }
+                    recordLines()
                 }
             } finally {
                 // The engine stopped by itself (e.g. a fatal error), not via stop().
@@ -395,6 +488,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private fun markStopped() {
         cloudTimer?.cancel()
         flushUsage()
+        finishTranscript()
         _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 
