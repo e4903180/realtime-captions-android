@@ -81,8 +81,25 @@ class CaptionAssembler(
     private var lastFinalAt: Double? = null
     private var utteranceStartAt: Double? = null
 
+    /** Utterances that make up each line in [CaptionState.lines] (same order), so one can be corrected later. */
+    private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>)
+    private val parts = ArrayList<LineParts>()
+    private var nextLineId = 0L
+    private var finals = 0
+
+    /**
+     * Number of the last [TranscriptEvent.Final] handled (counting from 0), for [revise]. Each Final
+     * gets a number, also ones that are hidden or empty.
+     */
+    val lastFinalSeq: Int get() = finals - 1
+
+    /** Stable id of the line at [index] (indexes shift when old lines are dropped), or -1. */
+    fun lineId(index: Int): Long = parts.getOrNull(index)?.id ?: -1
+
     fun reset() {
         state = CaptionState()
+        parts.clear()
+        finals = 0
         lastPartial = ""
         silentRounds = 0
         lastFinalAt = null
@@ -144,17 +161,23 @@ class CaptionAssembler(
                 val startAt = utteranceStartAt ?: now
                 utteranceStartAt = null
                 val hidden = text.isBlank() || (event.background && backgroundMode == BackgroundMode.HIDE)
+                val seq = finals++
                 val lines = when {
                     hidden -> state.lines
                     joinsLastLine(event.speaker, event.background, startAt, finalSpeakerKnown = true) -> {
                         val last = state.lines.last()
+                        parts.last().parts += seq to text
                         state.lines.dropLast(1) + last.copy(
                             text = join(last.text, text),
                             speakerName = last.speakerName ?: event.speakerName,
                             voice = event.voice ?: last.voice,
                         )
                     }
-                    else -> (state.lines + CaptionLine(text, event.speaker, event.background && backgroundMode == BackgroundMode.DIM, event.speakerName, event.voice)).takeLast(maxLines)
+                    else -> {
+                        parts += LineParts(nextLineId++, mutableListOf(seq to text))
+                        while (parts.size > maxLines) parts.removeAt(0)
+                        (state.lines + CaptionLine(text, event.speaker, event.background && backgroundMode == BackgroundMode.DIM, event.speakerName, event.voice)).takeLast(maxLines)
+                    }
                 }
                 if (!hidden) lastFinalAt = now
                 state.copy(hint = null, lines = lines, currentSpeaker = null, currentSpeakerName = null, currentBackground = false, stableText = "", tentativeText = "", continuesLastLine = false, error = null)
@@ -165,6 +188,36 @@ class CaptionAssembler(
                 isListening = event.recoverable && state.isListening,
             )
         }
+        return state
+    }
+
+    /**
+     * Replaces the text of utterance [seq] (see [lastFinalSeq]) with [text], e.g. from a second,
+     * more accurate pass over the same audio. The line keeps its speaker; an utterance whose line
+     * is gone, or that a [replaceLineText] already covered, is left alone.
+     */
+    fun revise(seq: Int, text: String): CaptionState {
+        val processed = processor.process(text)
+        if (processed.isBlank()) return state
+        val index = parts.indexOfFirst { p -> p.parts.any { it.first == seq } }
+        if (index < 0) return state
+        val line = parts[index]
+        val at = line.parts.indexOfFirst { it.first == seq }
+        line.parts[at] = seq to processed
+        return setLineText(index, line.parts.map { it.second }.reduce(::join))
+    }
+
+    /** Replaces a whole line's text, e.g. after proof-reading. Later [revise] calls for its utterances are ignored. */
+    fun replaceLineText(lineId: Long, text: String): CaptionState {
+        val index = parts.indexOfFirst { it.id == lineId }
+        if (index < 0 || text.isBlank()) return state
+        parts[index] = LineParts(lineId, mutableListOf(-1 to text))
+        return setLineText(index, text)
+    }
+
+    private fun setLineText(index: Int, text: String): CaptionState {
+        if (state.lines[index].text == text) return state
+        state = state.copy(lines = state.lines.mapIndexed { i, l -> if (i == index) l.copy(text = text) else l })
         return state
     }
 
