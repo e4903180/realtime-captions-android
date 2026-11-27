@@ -1,16 +1,29 @@
 import SwiftUI
 
-private let stableColor = Color(red: 1.0, green: 0.96, blue: 0.62)   // light yellow: settled
-private let tentativeColor = Color(white: 0.62)                        // gray: may still change
-private let errorColor = Color(red: 1.0, green: 0.54, blue: 0.5)
+/// A color with a dark-mode and a light-mode value; follows the system appearance live.
+private func adaptive(_ dark: Color, _ light: Color) -> Color {
+    Color(UIColor { $0.userInterfaceStyle == .light ? UIColor(light) : UIColor(dark) })
+}
+
+private let backgroundColor = adaptive(.black, .white)
+private let textColor = adaptive(.white, .black)
+private let stableColor = adaptive(Color(red: 1.0, green: 0.96, blue: 0.62), Color(red: 0.55, green: 0.36, blue: 0.0))  // settled
+private let tentativeColor = adaptive(Color(white: 0.62), Color(white: 0.42))                                          // may still change
+private let errorColor = adaptive(Color(red: 1.0, green: 0.54, blue: 0.5), Color(red: 0.75, green: 0.1, blue: 0.1))
+private let barColor = adaptive(Color(white: 0.1), Color(white: 0.93))
+private let meterColor = adaptive(Color(white: 0.19), Color(white: 0.82))
+/// Speaker tags: black text on a light tag in dark mode, white text on a deep tag in light mode.
+private let speakerTextColor = adaptive(.black, .white)
 private let speakerColors: [Color] = [
-    Color(red: 0.5, green: 0.85, blue: 1.0), Color(red: 1.0, green: 0.67, blue: 0.57),
-    Color(red: 0.73, green: 0.96, blue: 0.79), Color(red: 0.92, green: 0.5, blue: 0.99),
-    Color(red: 1.0, green: 0.9, blue: 0.5),
+    adaptive(Color(red: 0.5, green: 0.85, blue: 1.0), Color(red: 0.0, green: 0.42, blue: 0.7)),
+    adaptive(Color(red: 1.0, green: 0.67, blue: 0.57), Color(red: 0.75, green: 0.27, blue: 0.13)),
+    adaptive(Color(red: 0.73, green: 0.96, blue: 0.79), Color(red: 0.1, green: 0.5, blue: 0.22)),
+    adaptive(Color(red: 0.92, green: 0.5, blue: 0.99), Color(red: 0.55, green: 0.18, blue: 0.7)),
+    adaptive(Color(red: 1.0, green: 0.9, blue: 0.5), Color(red: 0.55, green: 0.4, blue: 0.0)),
 ]
 
 private func color(for speaker: String?) -> Color {
-    guard let s = speaker, let c = s.unicodeScalars.first else { return .white }
+    guard let s = speaker, let c = s.unicodeScalars.first else { return textColor }
     let i = Int(c.value) - Int(UnicodeScalar("A").value)
     return speakerColors[((i % speakerColors.count) + speakerColors.count) % speakerColors.count]
 }
@@ -35,7 +48,7 @@ struct CaptionView: View {
             status
             controls
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(backgroundColor.ignoresSafeArea())
         .sheet(isPresented: Binding(
             get: { model.showCloudSettings && !showPicker },
             set: { model.showCloudSettings = $0 }
@@ -63,7 +76,7 @@ struct CaptionView: View {
                 }
                 Spacer()
             }
-            .foregroundColor(.white)
+            .foregroundColor(textColor)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
@@ -118,7 +131,7 @@ struct CaptionView: View {
             if let speaker {
                 Text(speaker)
                     .font(.system(size: size * 0.6, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(speakerTextColor)
                     .padding(.horizontal, 8)
                     .background(color(for: speaker), in: Capsule())
             }
@@ -126,11 +139,11 @@ struct CaptionView: View {
                 if current {
                     // A continued line shows its finished text, then the utterance still being heard.
                     let done = text.map { $0 + Self.joiner($0, model.stableText + model.tentativeText) } ?? ""
-                    Text(done).foregroundColor(.white)
+                    Text(done).foregroundColor(textColor)
                         + Text(model.stableText).foregroundColor(stableColor)
                         + Text(model.tentativeText).foregroundColor(tentativeColor)
                 } else {
-                    Text(text ?? "").foregroundColor(.white)
+                    Text(text ?? "").foregroundColor(textColor)
                 }
             }
             .font(.system(size: size, weight: .medium))
@@ -152,11 +165,11 @@ struct CaptionView: View {
             if let progress = models.progress {
                 ProgressView(value: progress) {
                     Text("第一次使用，正在下載離線模型（約 \(ModelStore.totalBytes / 1_000_000) MB）… \(Int(progress * 100))%")
-                        .font(.system(size: 16)).foregroundColor(.white)
+                        .font(.system(size: 16)).foregroundColor(textColor)
                 }
                 .tint(.green)
             } else if model.preparing {
-                Text("準備中…").font(.system(size: 16)).foregroundColor(.white)
+                Text("準備中…").font(.system(size: 16)).foregroundColor(textColor)
             }
             if let hint = model.hint {
                 Text(hint).font(.system(size: 18)).foregroundColor(stableColor)
@@ -190,10 +203,10 @@ struct CaptionView: View {
             }
             .disabled(model.preparing)
         }
-        .tint(.white)
+        .tint(textColor)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color(white: 0.1))
+        .background(barColor)
     }
 }
 
@@ -203,7 +216,7 @@ private struct LevelMeter: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Color(white: 0.19))
+            Circle().fill(meterColor)
             Circle()
                 .fill(Color(red: 0.4, green: 0.73, blue: 0.42))
                 .scaleEffect(active ? CGFloat(0.3 + 0.7 * level) : 0)

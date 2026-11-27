@@ -79,6 +79,7 @@ struct CloudSettingsView: View {
 /// Engine list: one line of explanation per engine.
 struct EnginePickerView: View {
     @ObservedObject var model: CaptionViewModel
+    @AppStorage("appearance") private var appearance = "system"
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -97,6 +98,13 @@ struct EnginePickerView: View {
                     }
                 } header: { Text("說話者") } footer: {
                     Text("知道有幾個人在講話時選人數，分人會比較準。只用在「離線＋說話者」。")
+                }
+                Section("外觀") {
+                    Picker("背景", selection: $appearance) {
+                        Text("跟隨系統").tag("system")
+                        Text("深色").tag("dark")
+                        Text("淺色").tag("light")
+                    }
                 }
                 Section("文字校正") {
                     NavigationLink("整句重聽、AI 校稿") { CorrectionSettingsView(store: model.secondPassStore) }
