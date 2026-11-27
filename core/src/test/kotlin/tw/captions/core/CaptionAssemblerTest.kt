@@ -59,4 +59,22 @@ class CaptionAssemblerTest {
         assertEquals(listOf("A", "B"), a.state.lines.map { it.speaker?.label })
         assertEquals(null, a.state.currentSpeaker)
     }
+
+    @Test
+    fun hintAfterRepeatedSilenceAndClearsOnSpeech() {
+        val a = CaptionAssembler(silentRoundsBeforeHint = 2)
+        a.onEvent(TranscriptEvent.NoSpeechDetected)
+        assertEquals(null, a.state.hint)
+        a.onEvent(TranscriptEvent.NoSpeechDetected)
+        assertEquals(CaptionAssembler.NO_SPEECH_HINT, a.state.hint)
+        a.onEvent(TranscriptEvent.Partial("有了"))
+        assertEquals(null, a.state.hint)
+    }
+
+    @Test
+    fun audioLevelIsClamped() {
+        val a = CaptionAssembler()
+        a.onEvent(TranscriptEvent.AudioLevel(1.7f))
+        assertEquals(1f, a.state.audioLevel)
+    }
 }

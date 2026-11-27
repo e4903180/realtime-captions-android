@@ -63,6 +63,15 @@ fun CaptionScreen(
                 .safeDrawingPadding(),
         ) {
             Captions(ui, Modifier.weight(1f))
+            if (ui.running) LevelMeter(ui.captions.audioLevel)
+            ui.captions.hint?.let {
+                Text(
+                    it,
+                    color = TentativeText,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             ui.captions.error?.let {
                 Text(
                     it,
@@ -133,6 +142,25 @@ private fun Captions(ui: UiState, modifier: Modifier) {
                 )
             }
         }
+    }
+}
+
+/** Thin bar showing the microphone level, so the reader can see that sound is coming in. */
+@Composable
+private fun LevelMeter(level: Float) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .height(6.dp)
+            .background(Color(0xFF303030), CircleShape),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(level.coerceIn(0f, 1f))
+                .height(6.dp)
+                .background(Color(0xFF66BB6A), CircleShape),
+        )
     }
 }
 

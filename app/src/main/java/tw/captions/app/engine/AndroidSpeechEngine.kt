@@ -9,6 +9,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -54,6 +55,7 @@ class AndroidSpeechEngine(
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                Log.d(TAG, "onReadyForSpeech")
                 trySend(TranscriptEvent.Listening)
             }
 
@@ -62,15 +64,20 @@ class AndroidSpeechEngine(
             }
 
             override fun onResults(results: Bundle?) {
+                Log.d(TAG, "onResults ${results.firstText()}")
                 results.firstText()?.let { trySend(TranscriptEvent.Final(it)) }
                 restart()
             }
 
             override fun onError(error: Int) {
+                Log.d(TAG, "onError $error")
                 when (error) {
                     // Silence or nothing understood: just keep listening.
                     SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> restart()
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                        trySend(TranscriptEvent.NoSpeechDetected)
+                        restart()
+                    }
 
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                     SpeechRecognizer.ERROR_CLIENT -> restart(delayMs = 300)
@@ -108,7 +115,10 @@ class AndroidSpeechEngine(
             }
 
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) {
+                // Typical range is about -2 dB (silence) to 10 dB (loud speech).
+                trySend(TranscriptEvent.AudioLevel(((rmsdB + 2f) / 12f).coerceIn(0f, 1f)))
+            }
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -123,6 +133,10 @@ class AndroidSpeechEngine(
             recognizer.destroy()
         }
     }.flowOn(Dispatchers.Main.immediate)
+
+    private companion object {
+        const val TAG = "CaptionsEngine"
+    }
 
     private fun createRecognizer(): SpeechRecognizer =
         if (onDevice && Build.VERSION.SDK_INT >= 31 &&
