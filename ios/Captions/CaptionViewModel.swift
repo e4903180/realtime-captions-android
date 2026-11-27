@@ -39,6 +39,15 @@ final class CaptionViewModel: ObservableObject {
     }
     static let reclusterThreshold: Float = 0.45
 
+    /// 說話者辨識 (ADR-033). Off: no voice prints, no speaker tags, lines split by pauses only.
+    /// Takes effect the next time listening starts.
+    @Published var speakersOn: Bool = UserDefaults.standard.object(forKey: "speakersOn") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(speakersOn, forKey: "speakersOn")
+            if running { stop(); Task { await start() } }
+        }
+    }
+
     @Published var engineId: String = UserDefaults.standard.string(forKey: "engineId") ?? EngineInfo.offlineId {
         didSet { UserDefaults.standard.set(engineId, forKey: "engineId") }
     }
@@ -98,14 +107,17 @@ final class CaptionViewModel: ObservableObject {
                     showCloudSettings = true
                     return
                 }
-                engine = AzureEngine(key: key, region: AzureEngine.savedRegion)
+                let azure = AzureEngine(key: key, region: AzureEngine.savedRegion)
+                azure.speakers = speakersOn
+                engine = azure
             } else {
                 if !models.isReady { try await models.download() }
                 let wantSecond = SecondPassModel.isEnabled && secondPassStore.isReady
-                if offline == nil || offline?.hasSecondPass != wantSecond {
+                let wantSpeakers = speakersOn
+                if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers {
                     let files = models.files
                     let second = wantSecond ? secondPassStore.directory : nil
-                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files, secondPassDirectory: second) }.value
+                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second) }.value
                 }
                 guard let offline else { return }
                 offline.onRevision = { [weak self] n, text in

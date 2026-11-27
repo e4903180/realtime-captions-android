@@ -22,6 +22,9 @@ final class AzureEngine: CaptionEngine {
     private var transcriber: SPXConversationTranscriber?
     private let lock = NSLock()
 
+    /// Off: speaker tags from Azure are ignored (ADR-033).
+    var speakers = true
+
     init(key: String, region: String) {
         self.key = key
         self.region = region
@@ -57,13 +60,14 @@ final class AzureEngine: CaptionEngine {
         else { throw NSError(domain: "Azure", code: 1, userInfo: [NSLocalizedDescriptionKey: "無法建立 Azure 音訊串流"]) }
         let transcriber = try SPXConversationTranscriber(speechConfiguration: config, audioConfiguration: audio)
 
+        let speakers = self.speakers
         transcriber.addTranscribingEventHandler { _, e in
             guard let text = e.result?.text, !text.isEmpty else { return }
-            onEvents([IosBridgeKt.partialEvent(text: text, speakerIndex: Self.speakerIndex(e.result?.speakerId))])
+            onEvents([IosBridgeKt.partialEvent(text: text, speakerIndex: speakers ? Self.speakerIndex(e.result?.speakerId) : -1)])
         }
         transcriber.addTranscribedEventHandler { _, e in
             guard let text = e.result?.text, !text.isEmpty else { return }
-            onEvents([IosBridgeKt.finalEvent(text: text, speakerIndex: Self.speakerIndex(e.result?.speakerId))])
+            onEvents([IosBridgeKt.finalEvent(text: text, speakerIndex: speakers ? Self.speakerIndex(e.result?.speakerId) : -1)])
         }
         transcriber.addCanceledEventHandler { _, e in
             let message: String?
