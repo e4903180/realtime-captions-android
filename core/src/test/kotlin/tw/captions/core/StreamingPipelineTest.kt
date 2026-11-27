@@ -27,6 +27,15 @@ class SpeakerClustererTest {
     }
 
     @Test
+    fun shortLinesDoNotStartNewSpeakers() {
+        val c = SpeakerClusterer(threshold = 0.9f)
+        c.assign(floatArrayOf(1f, 0f))
+        assertEquals(SpeakerId(0), c.assign(floatArrayOf(0f, 1f), allowNew = false))
+        assertEquals(1, c.speakerCount)
+        assertEquals(SpeakerId(1), c.assign(floatArrayOf(0f, 1f)))
+    }
+
+    @Test
     fun capsTheNumberOfSpeakers() {
         val c = SpeakerClusterer(threshold = 0.99f, maxSpeakers = 2)
         c.assign(floatArrayOf(1f, 0f, 0f))
@@ -74,12 +83,12 @@ class StreamingPipelineTest {
     @Test
     fun emitsPartialsThenAFinalWithSpeakers() {
         val p = StreamingPipeline(FakeAsr(), EnergyVad(), embedder, SpeakerClusterer(0.7f), PipelineConfig(vadEndpointSilenceSec = null))
-        val speechA = List(12) { 0.3f }
-        val speechB = List(12) { 0.8f }
+        val speechA = List(20) { 0.3f }
+        val speechB = List(20) { 0.8f }
         val silence = List(4) { 0f }
         val events = run(p, speechA + silence + speechB + silence + speechA + silence)
         val finals = events.filterIsInstance<TranscriptEvent.Final>()
-        assertEquals(listOf("A".repeat(12), "B".repeat(12), "A".repeat(12)), finals.map { it.text })
+        assertEquals(listOf("A".repeat(20), "B".repeat(20), "A".repeat(20)), finals.map { it.text })
         assertEquals(listOf(SpeakerId(0), SpeakerId(1), SpeakerId(0)), finals.map { it.speaker })
         assertTrue(events.first() == TranscriptEvent.Listening)
         // After 1 s of speech, partials carry the provisional speaker.
@@ -97,6 +106,18 @@ class StreamingPipelineTest {
         val final = p.feed(chunk(0f)).filterIsInstance<TranscriptEvent.Final>().single()
         assertEquals("AAAAA", final.text)
         assertNull(final.speaker)
+    }
+
+    @Test
+    fun longLinesEndAtAShortPause() {
+        val cfg = PipelineConfig(vadEndpointSilenceSec = 0.5f, vadEndpointStableSec = 0f, maxLineSec = 1f, shortPauseSec = 0.1f)
+        val p = StreamingPipeline(FakeAsr(), EnergyVad(), config = cfg)
+        // 0.5 s of speech, a 0.1 s breath: line continues (too short to end a young line).
+        val young = (List(5) { 0.3f } + 0f).flatMap { p.feed(chunk(it)) }
+        assertTrue(young.none { it is TranscriptEvent.Final })
+        // Keep talking past maxLineSec: now a 0.1 s breath ends the line.
+        val old = (List(10) { 0.3f } + 0f).flatMap { p.feed(chunk(it)) }
+        assertEquals(1, old.count { it is TranscriptEvent.Final })
     }
 
     @Test
