@@ -65,6 +65,7 @@ fun CaptionScreen(
     onNameLine: (Int, String) -> Unit = { _, _ -> },
     onOpenPeople: () -> Unit = {},
     onToggleTv: () -> Unit = {},
+    onOpenTranscripts: () -> Unit = {},
 ) {
     MaterialTheme(colorScheme = darkColorScheme(background = Background)) {
         Column(
@@ -130,7 +131,7 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onToggleBackground, onClear, onFontSize, onOpenPeople)
+            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onToggleBackground, onClear, onFontSize, onOpenPeople, onOpenTranscripts)
         }
     }
 }
@@ -292,6 +293,7 @@ private fun Controls(
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
     onOpenPeople: () -> Unit,
+    onOpenTranscripts: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         // One button for the engine; the full list with descriptions opens in a sheet.
@@ -303,7 +305,8 @@ private fun Controls(
         ) {
             Text("引擎：$current  ▾", fontSize = 18.sp, color = Color.White)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onOpenTranscripts) { Text("紀錄", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Color.White) }
             if (!ui.tvMode) TextButton(onClick = onToggleBackground) {
@@ -316,7 +319,6 @@ private fun Controls(
                     fontSize = 18.sp, color = Color.White,
                 )
             }
-            Spacer(Modifier.weight(1f))
             TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }
             TextButton(onClick = onClear) { Text("清除", fontSize = 18.sp, color = Color.White) }
