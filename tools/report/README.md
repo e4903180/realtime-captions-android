@@ -10,3 +10,10 @@ tools/whisper-bench/.venv/Scripts/python tools/report/make_page.py     # build/r
 ```
 
 Audio and outputs stay in `build/` (not in git).
+
+## PDF with charts
+
+```bash
+tools/whisper-bench/.venv/Scripts/python tools/report/make_charts.py   # needs matplotlib
+tools/whisper-bench/.venv/Scripts/python tools/report/make_pdf.py      # headless Chrome -> build/report/*.pdf
+```
