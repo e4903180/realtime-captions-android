@@ -17,7 +17,7 @@
 
 - 台灣腔真實語音、噪音驗證、Whisper／Breeze（自己的 4070）、Google Chirp 3／V1、Azure 對照（benchmark-real／noise／engines.md，ADR-014、015）
 
-- iPhone 版第一步：`:core` 改成 Kotlin Multiplatform；SwiftUI App 骨架，sherpa-onnx 離線引擎、模型下載、台灣用語轉換；GitHub Actions macOS 建置與模擬器端對端測試（ADR-016、017，[ios/README.md](../ios/README.md)）
+- iPhone 版第一步：`:core` 改成 Kotlin Multiplatform；SwiftUI App 骨架，sherpa-onnx 離線引擎、模型下載、台灣用語轉換；GitHub Actions macOS 建置與模擬器端對端測試（ADR-017、018，[ios/README.md](../ios/README.md)）
 
 ## 進行中
 
@@ -41,6 +41,18 @@
 - 結合投影片或講義（Docling、MarkItDown）
 - 多語即時翻譯
 - 智慧眼鏡等其他裝置
+
+## iOS（iPhone）版（2026-11-27 開始，見 ADR-017）
+
+- 架構：把 `:core`（字幕組裝、文字處理、說話者分群）改成 Kotlin Multiplatform 模組，讓 Android 和 iOS 共用。iOS 畫面用 SwiftUI 做，跟 Android 版同樣是黑底大字。
+- 離線辨識：sherpa-onnx 有 iOS 版，能用同一組模型（X-ASR、Silero VAD、CAM++）。
+- 雲端引擎：Azure Speech SDK、Google 都有 iOS 版。家用伺服器用同一個 WebSocket 協定。
+- iOS 的限制：背景收音要開 audio 背景模式；系統內建辨識（SFSpeechRecognizer）沒有分人功能。
+- 需要準備（2026-11-27 tony 選定免費方式）：
+  - tony 的 Mac 裝 Xcode。Mac 目前只剩約 34 GB，Xcode 和 iOS 模擬器需要 15 到 25 GB，安裝前要先清出空間。
+  - 免費的 Apple ID 即可，不用付 99 美元的開發者帳號。
+  - 一支測試用的 iPhone，用 USB 連到 Mac 安裝。
+- 安裝方式：用 Mac 上的 Xcode 直接安裝到 iPhone。免費帳號裝的 App 每 7 天要重新安裝一次，也不能用 TestFlight 分享給別人。之後如果要給更多人用，再改用付費帳號的 TestFlight 或 App Store。
 
 ## 發布（已排入，先不做）
 

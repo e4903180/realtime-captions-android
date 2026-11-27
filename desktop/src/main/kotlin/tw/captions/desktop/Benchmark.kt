@@ -25,6 +25,22 @@ fun main(args: Array<String>) {
     val opts = args.toList()
     fun opt(name: String) = opts.indexOf(name).takeIf { it >= 0 }?.let { opts[it + 1] }
     val modelsDir = File(opt("--models") ?: System.getenv("SHERPA_MODELS") ?: error("pass --models <dir>"))
+    opt("--clips")?.let { dir ->
+        // Caption every clip with the default engine and dump the lines (for the listening report).
+        val d = File(dir)
+        val arr = org.json.JSONArray()
+        SherpaStack(EngineSetup(modelsDir)).use { stack ->
+            for (t in loadTruths(d)) {
+                val r = runFile(stack, t, d, false)
+                arr.put(JSONObject().put("id", t.id).put("lines", org.json.JSONArray(r.utterances.map {
+                    JSONObject().put("text", it.text).put("speaker", it.speaker?.let { s -> ('A' + s).toString() } ?: JSONObject.NULL)
+                        .put("first", it.firstPartialAt).put("final", it.finalAt)
+                })))
+            }
+        }
+        File(opt("--out") ?: "build/report/xasr.json").writeText(arr.toString(1), Charsets.UTF_8)
+        return
+    }
     opt("--noise")?.let { dir ->
         noiseBenchmark(modelsDir, File(dir), File(opt("--out") ?: "docs/benchmark-noise.md"), quick = "--quick" in opts)
         return

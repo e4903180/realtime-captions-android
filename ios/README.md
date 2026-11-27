@@ -1,6 +1,6 @@
 # 即時字幕 iPhone 版
 
-SwiftUI 畫面＋共用的 Kotlin 核心（`../core`，Kotlin Multiplatform）＋ sherpa-onnx 離線引擎。設計決策見 [ADR-016、017](../docs/decisions.md)。
+SwiftUI 畫面＋共用的 Kotlin 核心（`../core`，Kotlin Multiplatform）＋ sherpa-onnx 離線引擎。設計決策見 [ADR-017、018](../docs/decisions.md)。
 
 ## 目前功能
 
