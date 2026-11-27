@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import android.util.Log
 import java.io.File
 import tw.captions.app.engine.AndroidSpeechEngine
+import tw.captions.app.engine.AzureSpeechEngine
+import tw.captions.app.settings.KeyVault
 import tw.captions.app.engine.EngineCatalog
 import tw.captions.app.engine.MicInput
 import tw.captions.app.engine.ModelStore
@@ -38,6 +40,13 @@ data class UiState(
     val installedEngines: Set<String> = emptySet(),
     /** Disk space each installed offline engine would free if removed (bytes). */
     val freeableBytes: Map<String, Long> = emptyMap(),
+    /** "••••1a2b" when an Azure key is stored. */
+    val azureKeyHint: String? = null,
+    val azureRegion: String = "eastasia",
+    val cloudTesting: Boolean = false,
+    val cloudTestMessage: String? = null,
+    /** Seconds the current paid cloud session has been running, shown so users know what they spend. */
+    val cloudSeconds: Int? = null,
     /** Debug builds: wav file played instead of the microphone. */
     val debugWav: String? = null,
 )
@@ -54,7 +63,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         AndroidSpeechEngine(app, onDevice = true),
         SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160),
         SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480),
+        AzureSpeechEngine(
+            credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
+            openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
+        ),
     )
+
+    private val vault = KeyVault(app)
 
     private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
 
@@ -77,7 +92,54 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshInstalled()
+        refreshKeys()
     }
+
+    private fun refreshKeys() {
+        _ui.update { it.copy(azureKeyHint = vault.hint(KeyVault.AZURE_KEY), azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") }
+    }
+
+    fun saveAzure(key: String, region: String) {
+        if (key.isNotEmpty()) vault.put(KeyVault.AZURE_KEY, key)
+        vault.putPlain(KeyVault.AZURE_REGION, region)
+        _ui.update { it.copy(cloudTestMessage = null) }
+        refreshKeys()
+        testAzure()
+    }
+
+    fun removeAzure() {
+        if (_ui.value.engineId == AzureSpeechEngine.ID) stop()
+        vault.remove(KeyVault.AZURE_KEY)
+        _ui.update { it.copy(cloudTestMessage = null) }
+        refreshKeys()
+    }
+
+    fun testAzure() {
+        val key = vault.get(KeyVault.AZURE_KEY) ?: return
+        val region = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia"
+        _ui.update { it.copy(cloudTesting = true, cloudTestMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val r = AzureSpeechEngine.testKey(key, region)
+            _ui.update {
+                it.copy(
+                    cloudTesting = false,
+                    cloudTestMessage = r.fold({ "可以使用：金鑰和區域都正確" }, { e -> "不能使用：${e.message ?: "連不上 Azure，請確認網路"}" }),
+                )
+            }
+        }
+    }
+
+    /** Debug builds: import an Azure key from a file (AZURE_SPEECH_KEY=..., AZURE_SPEECH_REGION=...) for emulator tests. */
+    fun importAzureEnv(file: File) {
+        if (!BuildConfig.DEBUG || !file.isFile) return
+        val env = file.readLines().mapNotNull { l -> l.split("=", limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }.toMap()
+        env["AZURE_SPEECH_KEY"]?.let { vault.put(KeyVault.AZURE_KEY, it) }
+        env["AZURE_SPEECH_REGION"]?.let { vault.putPlain(KeyVault.AZURE_REGION, it) }
+        file.delete()
+        refreshKeys()
+    }
+
+    private var cloudTimer: Job? = null
 
     private val offlineEngines get() = engines.filterIsInstance<SherpaOnnxEngine>()
 
@@ -101,6 +163,17 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _ui.update { it.copy(running = true) }
+        if (EngineCatalog.byId(engine.id)?.paid == true) {
+            cloudTimer?.cancel()
+            cloudTimer = viewModelScope.launch {
+                var sec = 0
+                while (true) {
+                    _ui.update { it.copy(cloudSeconds = sec) }
+                    kotlinx.coroutines.delay(1000)
+                    sec++
+                }
+            }
+        }
         lateinit var self: Job
         self = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
@@ -180,7 +253,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun markStopped() {
-        _ui.update { it.copy(running = false, captions = it.captions.copy(isListening = false)) }
+        cloudTimer?.cancel()
+        _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 
     fun clear() {

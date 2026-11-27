@@ -54,6 +54,7 @@ fun CaptionScreen(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
+    onOpenSettings: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
@@ -99,7 +100,15 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            Controls(ui, engines, onStart, onStop, onOpenEngines, onClear, onFontSize)
+            ui.cloudSeconds?.let { sec ->
+                Text(
+                    "雲端計費中：本次已使用 ${sec / 60} 分 ${sec % 60} 秒",
+                    color = Color(0xFFFFB74D),
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onClear, onFontSize)
         }
     }
 }
@@ -201,6 +210,7 @@ private fun Controls(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
+    onOpenSettings: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
@@ -215,6 +225,7 @@ private fun Controls(
             Text("引擎：$current  ▾", fontSize = 18.sp, color = Color.White)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }

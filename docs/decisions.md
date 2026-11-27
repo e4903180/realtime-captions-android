@@ -161,3 +161,10 @@
 - **決定：** 在 `:core` 加 `OpenCcTaiwanConverter`：讀 opencc4j 內附的同一批 OpenCC 字典（TWPhrases、TWVariants、STPhrases、STCharacters），最長詞優先轉換，再修正台灣異體字（啓→啟）。iOS 從 App 內附的字典檔建立轉換器（`ios/scripts/fetch-deps.sh` 從 Maven 取同一版 opencc4j 的字典）。JVM 測試在 15 句常見句子上和 opencc4j 比對，結果完全相同（軟件→軟體、視頻→影片、出租車→計程車、打印機→印表機、筆記本電腦→膝上型電腦、網絡→網路）。
 - **其他選項：** iOS 內建 `Hans-Hant` 轉換（只有字，沒有台灣用語）；SwiftyOpenCC（多一個 C++ 套件要編譯）。
 - **後果：** Android 暫時維持 opencc4j，之後可以改用同一個共用轉換器，少一個依賴。
+## ADR-019 雲端金鑰由使用者自備，加密存在手機
+
+- **日期：** 2026-11-27
+- **背景：** 使用者要能自己設定 API 金鑰使用雲端引擎（Azure）。
+- **決定：** 不經過我們的伺服器，App 直接用使用者的金鑰連 Azure。金鑰用 Android Keystore 的 AES-GCM 金鑰加密後存在 SharedPreferences，只顯示末 4 碼，可刪除。測試連線只要求存取權杖，不送音訊、不產生費用。關閉 Azure 的不雅字過濾。
+- **其他選項：** EncryptedSharedPreferences（androidx.security-crypto 已停止維護）；由我們的伺服器代管金鑰（需要帳號系統，且金鑰集中存放風險高）。
+- **後果：** 費用由使用者自己的 Azure 帳號支付；畫面顯示本次使用時間提醒。Google 雲端暫不提供（Chirp 3 太慢、V1 不準）。

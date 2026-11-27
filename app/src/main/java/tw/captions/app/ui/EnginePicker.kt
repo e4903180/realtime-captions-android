@@ -55,6 +55,7 @@ fun EnginePicker(
     onDownload: (String) -> Unit,
     onCancelDownload: () -> Unit,
     onUninstall: (String) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
@@ -79,6 +80,8 @@ fun EnginePicker(
                     onDownload = { onDownload(info.id) },
                     onCancel = onCancelDownload,
                     onRemove = { confirmRemove = info },
+                    keyHint = if (info.needsKey) ui.azureKeyHint else null,
+                    onOpenSettings = onOpenSettings,
                 )
             }
             Spacer(Modifier.height(16.dp))
@@ -112,6 +115,8 @@ private fun EngineRow(
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit,
+    keyHint: String?,
+    onOpenSettings: () -> Unit,
 ) {
     Column(
         Modifier
@@ -136,6 +141,16 @@ private fun EngineRow(
             if (info.speakerTags) Badge("說話者標籤", Sub)
             if (info.paid) Badge("付費", Color(0xFFFFB74D))
             if (info.packs.isNotEmpty()) Badge("下載約 ${mb(info.packs.sumOf { it.downloadBytes })}", Sub)
+        }
+        if (info.needsKey) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (keyHint != null) "金鑰已設定（$keyHint）" else "需要設定金鑰",
+                    color = if (keyHint != null) Accent else Color(0xFFFFB74D),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = onOpenSettings) { Text(if (keyHint != null) "設定" else "設定金鑰", color = Color.White) }
+            }
         }
         if (info.packs.isNotEmpty()) {
             when {
