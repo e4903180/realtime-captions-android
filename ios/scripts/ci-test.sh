@@ -30,6 +30,10 @@ get "$R/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common
 cd ios
 xcodegen generate
 
+# API surface of the vendored SDKs, printed so a compile error can be matched against it.
+grep -rh -E "Transcribing|resultReceivedHandler" Vendor/MicrosoftCognitiveServicesSpeech.xcframework/ios-arm64*/MicrosoftCognitiveServicesSpeech.framework/Headers/SPXConversationTranscriber.h 2>/dev/null | head -20 || true
+grep -n -E "^func sherpaOnnxOffline(ModelConfig|RecognizerConfig|SenseVoiceModelConfig|ParaformerModelConfig)|^class SherpaOnnxOfflineRecognizer|func decode\(samples" Vendor/SherpaOnnx.swift | head -20 || true
+
 # Unsigned build for a real iPhone: checks that every library links for arm64 devices.
 xcodebuild build -project Captions.xcodeproj -scheme Captions -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath build/device \

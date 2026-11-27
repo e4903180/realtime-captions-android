@@ -58,12 +58,12 @@ final class AzureEngine: CaptionEngine {
         let transcriber = try SPXConversationTranscriber(speechConfiguration: config, audioConfiguration: audio)
 
         transcriber.addTranscribingEventHandler { _, e in
-            guard let text = e.result.text, !text.isEmpty else { return }
-            onEvents([IosBridgeKt.partialEvent(text: text, speakerIndex: Self.speakerIndex(e.result.speakerId))])
+            guard let text = e.result?.text, !text.isEmpty else { return }
+            onEvents([IosBridgeKt.partialEvent(text: text, speakerIndex: Self.speakerIndex(e.result?.speakerId))])
         }
         transcriber.addTranscribedEventHandler { _, e in
-            guard let text = e.result.text, !text.isEmpty else { return }
-            onEvents([IosBridgeKt.finalEvent(text: text, speakerIndex: Self.speakerIndex(e.result.speakerId))])
+            guard let text = e.result?.text, !text.isEmpty else { return }
+            onEvents([IosBridgeKt.finalEvent(text: text, speakerIndex: Self.speakerIndex(e.result?.speakerId))])
         }
         transcriber.addCanceledEventHandler { _, e in
             let message: String?
@@ -75,7 +75,11 @@ final class AzureEngine: CaptionEngine {
             }
             if let message { onEvents([IosBridgeKt.errorEvent(message: message, recoverable: false)]) }
         }
-        try transcriber.startTranscribing()
+        try transcriber.startTranscribingAsync { started, error in
+            if !started {
+                onEvents([IosBridgeKt.errorEvent(message: "Azure 無法開始辨識：\(error?.localizedDescription ?? "")", recoverable: false)])
+            }
+        }
         lock.lock()
         self.stream = stream
         self.transcriber = transcriber
@@ -105,7 +109,7 @@ final class AzureEngine: CaptionEngine {
         lock.unlock()
         stream?.close()
         DispatchQueue.global(qos: .userInitiated).async {
-            try? transcriber?.stopTranscribing()
+            try? transcriber?.stopTranscribingAsync { _, _ in }
         }
     }
 
