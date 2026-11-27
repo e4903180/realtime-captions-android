@@ -40,9 +40,12 @@ fun createOfflinePipeline(
     speakerThreshold: Float,
 ): StreamingPipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold))
 
-/** Caption assembler with the default clean-up steps and the given Chinese converter. */
+/**
+ * Caption assembler with the default clean-up steps and the given Chinese converter. One person's
+ * utterances less than 1.5 s apart are joined into one line (ADR-024).
+ */
 fun createCaptionAssembler(converter: ChineseScriptConverter): CaptionAssembler =
-    CaptionAssembler(TextProcessor.default(converter = converter))
+    CaptionAssembler(TextProcessor.default(converter = converter), mergeGapSec = 1.5)
 
 /** Speaker letter of a caption line ("A", "B", ...), or null. Value classes reach Swift boxed, so read it here. */
 fun speakerLabelOf(line: CaptionLine): String? = line.speaker?.label

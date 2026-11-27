@@ -15,6 +15,8 @@ final class CaptionViewModel: ObservableObject {
     @Published private(set) var stableText = ""
     @Published private(set) var tentativeText = ""
     @Published private(set) var currentSpeaker: String?
+    /// The current utterance continues the last line (same speaker, short pause): shown on that line.
+    @Published private(set) var continuesLastLine = false
     @Published private(set) var level: Float = 0
     @Published private(set) var hint: String?
     @Published private(set) var error: String?
@@ -132,6 +134,7 @@ final class CaptionViewModel: ObservableObject {
         stableText = state.stableText
         tentativeText = state.tentativeText
         currentSpeaker = IosBridgeKt.currentSpeakerLabelOf(state: state)
+        continuesLastLine = state.continuesLastLine && !newLines.isEmpty
         level = state.audioLevel
         hint = state.hint
         if let e = state.error { error = e }

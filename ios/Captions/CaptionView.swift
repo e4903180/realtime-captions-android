@@ -68,9 +68,10 @@ struct CaptionView: View {
                             .padding(.top, 24)
                     }
                     ForEach(model.lines) { line in
-                        lineView(line.text, speaker: line.speaker, current: false)
+                        let continued = model.continuesLastLine && line.id == model.lines.last?.id
+                        lineView(line.text, speaker: line.speaker, current: continued)
                     }
-                    if !model.stableText.isEmpty || !model.tentativeText.isEmpty {
+                    if !model.continuesLastLine && (!model.stableText.isEmpty || !model.tentativeText.isEmpty) {
                         lineView(nil, speaker: model.currentSpeaker, current: true)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -97,7 +98,11 @@ struct CaptionView: View {
             }
             Group {
                 if current {
-                    Text(model.stableText).foregroundColor(stableColor) + Text(model.tentativeText).foregroundColor(tentativeColor)
+                    // A continued line shows its finished text, then the utterance still being heard.
+                    let done = text.map { $0 + Self.joiner($0, model.stableText + model.tentativeText) } ?? ""
+                    Text(done).foregroundColor(.white)
+                        + Text(model.stableText).foregroundColor(stableColor)
+                        + Text(model.tentativeText).foregroundColor(tentativeColor)
                 } else {
                     Text(text ?? "").foregroundColor(.white)
                 }
@@ -106,6 +111,14 @@ struct CaptionView: View {
             .lineSpacing(size * 0.25)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Same joining rule as the shared CaptionAssembler: a comma between Chinese, a space between words.
+    static func joiner(_ a: String, _ b: String) -> String {
+        guard let x = a.last, let y = b.first else { return "" }
+        if !x.isASCII && !y.isASCII && x.isLetter && y.isLetter { return "，" }
+        if x.isASCII && y.isASCII && (x.isLetter || x.isNumber) && (y.isLetter || y.isNumber) { return " " }
+        return ""
     }
 
     private var status: some View {

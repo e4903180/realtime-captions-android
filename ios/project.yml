@@ -44,6 +44,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(CAPTIONS_BUNDLE_ID)
         PRODUCT_NAME: Captions
         INFOPLIST_FILE: Captions/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Captions/Captions-Bridging-Header.h
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
