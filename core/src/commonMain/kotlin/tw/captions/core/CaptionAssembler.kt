@@ -128,8 +128,9 @@ class CaptionAssembler(
         return if (needsComma) "$a，$b" else if (end.isLetterOrDigit() && b.firstOrNull()?.isLetterOrDigit() == true) "$a $b" else a + b
     }
 
-    fun onEvent(incoming: TranscriptEvent): CaptionState {
-        val event = withSpeakerName(incoming)
+    fun onEvent(event: TranscriptEvent): CaptionState = handle(withSpeakerName(event))
+
+    private fun handle(event: TranscriptEvent): CaptionState {
         state = when (event) {
             TranscriptEvent.Listening -> state.copy(isListening = true, error = null)
 
