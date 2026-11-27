@@ -80,6 +80,8 @@ class CaptionAssembler(
     private var silentRounds = 0
     private var lastFinalAt: Double? = null
     private var utteranceStartAt: Double? = null
+    /** Whether the utterance in progress is shown on the last line; decided once so it does not jump back and forth. */
+    private var joining: Boolean? = null
 
     /** Utterances that make up each line in [CaptionState.lines] (same order), so one can be corrected later. */
     private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>)
@@ -104,6 +106,7 @@ class CaptionAssembler(
         silentRounds = 0
         lastFinalAt = null
         utteranceStartAt = null
+        joining = null
     }
 
     /** Whether an utterance by [speaker] that started at [startAt] should join the last line. */
@@ -141,8 +144,14 @@ class CaptionAssembler(
                 val stableLen = if (lastPartial.isEmpty()) 0 else commonPrefixLength(lastPartial, text)
                 if (lastPartial.isEmpty() && utteranceStartAt == null) utteranceStartAt = clockSec()
                 lastPartial = text
+                // Decide once; only leave the last line if the speaker turns out to be someone else.
+                joining = when (val j = joining) {
+                    null -> joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false)
+                    true -> joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false)
+                    false -> j
+                }
                 state.copy(
-                    continuesLastLine = joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false),
+                    continuesLastLine = joining == true,
                     hint = null,
                     currentSpeaker = event.speaker,
                     currentSpeakerName = event.speakerName,
@@ -160,6 +169,7 @@ class CaptionAssembler(
                 val now = clockSec()
                 val startAt = utteranceStartAt ?: now
                 utteranceStartAt = null
+                joining = null
                 val hidden = text.isBlank() || (event.background && backgroundMode == BackgroundMode.HIDE)
                 val seq = finals++
                 val lines = when {
@@ -218,6 +228,20 @@ class CaptionAssembler(
     private fun setLineText(index: Int, text: String): CaptionState {
         if (state.lines[index].text == text) return state
         state = state.copy(lines = state.lines.mapIndexed { i, l -> if (i == index) l.copy(text = text) else l })
+        return state
+    }
+
+    /**
+     * Groups all finished lines by voice again and updates their speaker letters
+     * ([SpeakerRecluster], ADR-027). Lines without a voice profile, background lines and lines
+     * with a registered name keep their label. [speakers] > 0 fixes the number of people.
+     */
+    fun recluster(threshold: Float = 0.45f, speakers: Int = 0): CaptionState {
+        val lines = state.lines
+        val voices = lines.map { if (it.background || it.speakerName != null) null else it.voice }
+        val relabeled = SpeakerRecluster.relabel(voices, lines.map { it.speaker }, threshold, speakers)
+        if (relabeled == lines.map { it.speaker }) return state
+        state = state.copy(lines = lines.mapIndexed { i, l -> if (l.speaker == relabeled[i]) l else l.copy(speaker = relabeled[i]) })
         return state
     }
 

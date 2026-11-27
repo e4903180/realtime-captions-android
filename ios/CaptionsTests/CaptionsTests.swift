@@ -3,6 +3,26 @@ import XCTest
 @testable import Captions
 
 final class CaptionsTests: XCTestCase {
+    func testTranscriptExport() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let t = Transcript(id: UUID(), title: "測試", started: start, ended: start.addingTimeInterval(75), engine: "離線", lines: [
+            .init(id: 1, speaker: "A", text: "你好", start: 0.5, end: 1.2),
+            .init(id: 2, speaker: "B", text: "早安", start: 1.6, end: 3725.25),
+        ])
+        XCTAssertEqual(Transcript.srtTime(3725.25), "01:02:05,250")
+        let srt = t.srt
+        XCTAssertTrue(srt.hasPrefix("1\n00:00:00,500 --> 00:00:01,600\nA：你好\n\n2\n"), srt)
+        XCTAssertTrue(srt.contains("B：早安"))
+        XCTAssertTrue(t.plainText.contains("A：你好\n"))
+        XCTAssertFalse(t.fileStem.contains("/"))
+    }
+
+    func testUsageCosts() {
+        var day = UsageLog.Day()
+        day.claude["claude-haiku-5-5"] = .init(requests: 2, failures: 0, inputTokens: 1_000_000, outputTokens: 1_000_000)
+        XCTAssertEqual(UsageLog.shared.claudeCost(day), UsageLog.shared.prices.haikuInput + UsageLog.shared.prices.haikuOutput, accuracy: 1e-9)
+    }
+
     func testFloatArraysRoundTrip() {
         let samples: [Float] = (0..<1600).map { Float($0) / 1600 }
         XCTAssertEqual(FloatArrays.toSwift(FloatArrays.toKotlin(samples)), samples)

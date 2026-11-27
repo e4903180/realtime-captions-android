@@ -19,7 +19,10 @@ final class OfflineEngine {
     /// Called with (n, text): the n-th finished line since `begin` (from 0) should read `text`.
     var onRevision: ((Int, String) -> Void)?
 
+    let hasSpeakers: Bool
+
     init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil) {
+        hasSpeakers = speakers
         secondPass = secondPassDirectory.map { SherpaSecondPass(directory: $0) }
         pipeline = IosBridgeKt.createOfflinePipeline(
             asr: SherpaAsr(models: models),
