@@ -327,7 +327,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val first = registry.isEmpty
         registry.add(name.trim(), voice)
         savePeople()
-        _ui.update { it.copy(captions = assembler.nameLine(index, name.trim())) }
+        // Every line with the same letter gets the name, and so do that speaker's later lines.
+        _ui.update { it.copy(captions = assembler.nameSpeaker(index, name.trim())) }
         recordLines()
         // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
         if (first && !_ui.value.tvMode && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
@@ -336,6 +337,33 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun forgetPerson(id: Int) {
         registry.remove(id)
         savePeople()
+    }
+
+    /** New name for a known person. If someone else already has that name, the two become one person. */
+    fun renamePerson(id: Int, newName: String) {
+        val name = newName.trim()
+        val person = registry.people.firstOrNull { it.id == id } ?: return
+        if (name.isEmpty() || name == person.name) return
+        val same = registry.people.firstOrNull { it.id != id && it.name == name }
+        if (same != null) {
+            mergePeople(id, same.id)
+            return
+        }
+        registry.rename(id, name)
+        savePeople()
+        _ui.update { it.copy(captions = assembler.renameSpeaker(person.name, name)) }
+        recordLines()
+    }
+
+    /** Two entries turned out to be the same person: [fromId] joins [intoId], voices combined. */
+    fun mergePeople(fromId: Int, intoId: Int) {
+        val from = registry.people.firstOrNull { it.id == fromId } ?: return
+        val into = registry.people.firstOrNull { it.id == intoId } ?: return
+        if (from.id == into.id) return
+        registry.merge(fromId, intoId)
+        savePeople()
+        _ui.update { it.copy(captions = assembler.renameSpeaker(from.name, into.name)) }
+        recordLines()
     }
 
     private fun setBackgroundMode(mode: tw.captions.core.BackgroundMode) {

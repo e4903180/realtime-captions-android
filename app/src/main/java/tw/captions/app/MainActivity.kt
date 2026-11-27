@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             if (showPeople) {
-                tw.captions.app.ui.PeopleSheet(ui = ui, onDismiss = { showPeople = false }, onForget = viewModel::forgetPerson)
+                tw.captions.app.ui.PeopleSheet(ui = ui, onDismiss = { showPeople = false }, onForget = viewModel::forgetPerson, onRename = viewModel::renamePerson, onMerge = viewModel::mergePeople)
             }
             if (showTranscripts) {
                 tw.captions.app.ui.TranscriptsScreen(
