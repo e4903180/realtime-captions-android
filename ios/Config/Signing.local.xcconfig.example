@@ -1,0 +1,4 @@
+// Your Apple ID team (Xcode > Settings > Accounts > your Apple ID > Team ID, 10 characters).
+DEVELOPMENT_TEAM = ABCDE12345
+// Free Apple IDs need a bundle ID that is unique to you, e.g. add your own name.
+CAPTIONS_BUNDLE_ID = tw.captions.ios.yourname
