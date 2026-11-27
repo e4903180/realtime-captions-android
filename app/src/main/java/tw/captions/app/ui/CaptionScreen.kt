@@ -53,7 +53,7 @@ fun CaptionScreen(
     engines: List<SpeechEngine>,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    onSelectEngine: (String) -> Unit,
+    onOpenEngines: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
@@ -68,7 +68,7 @@ fun CaptionScreen(
             if (ui.running) LevelMeter(ui.captions.audioLevel)
             ui.modelDownload?.let { p ->
                 Text(
-                    "第一次使用，正在下載離線模型（約 165 MB）… ${(p * 100).toInt()}%",
+                    "正在下載離線模型… ${(p * 100).toInt()}%",
                     color = StableText,
                     fontSize = 18.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -99,7 +99,7 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            Controls(ui, engines, onStart, onStop, onSelectEngine, onClear, onFontSize)
+            Controls(ui, engines, onStart, onStop, onOpenEngines, onClear, onFontSize)
         }
     }
 }
@@ -200,26 +200,19 @@ private fun Controls(
     engines: List<SpeechEngine>,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    onSelectEngine: (String) -> Unit,
+    onOpenEngines: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-        // Engines on their own scrollable row so they never push the other buttons off narrow screens.
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            engines.forEach { engine ->
-                FilterChip(
-                    selected = ui.engineId == engine.id,
-                    onClick = { onSelectEngine(engine.id) },
-                    label = { Text(engine.displayName, fontSize = 18.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFF424242),
-                        selectedLabelColor = Color.White,
-                        labelColor = Color.LightGray,
-                    ),
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-            }
+        // One button for the engine; the full list with descriptions opens in a sheet.
+        val current = tw.captions.app.engine.EngineCatalog.byId(ui.engineId)?.name
+            ?: engines.firstOrNull { it.id == ui.engineId }?.displayName ?: ui.engineId
+        androidx.compose.material3.OutlinedButton(
+            onClick = onOpenEngines,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("引擎：$current  ▾", fontSize = 18.sp, color = Color.White)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))
