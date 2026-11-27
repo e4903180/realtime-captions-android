@@ -49,6 +49,8 @@ class SherpaOnnxEngine(
     private val useDenoiser: Boolean = DENOISER_DEFAULT,
     /** People the user taught the app to recognise (認聲音). */
     private val registry: tw.captions.core.VoiceRegistry? = null,
+    /** 說話者辨識 on/off (ADR-033): off skips the speaker model, so no labels and less battery. */
+    private val speakersOn: () -> Boolean = { true },
 ) : SpeechEngine {
     override val id = variant.id
     override val displayName = variant.displayName
@@ -77,18 +79,26 @@ class SherpaOnnxEngine(
         }
         val asr = Asr(models, variant.filePrefix)
         val vad = SileroVad(models)
-        val embedder = Embedder(models)
+        val withSpeakers = speakersOn()
+        val embedder = if (withSpeakers) Embedder(models) else null
         val denoiser = if (useDenoiser) Denoiser(models) else null
         val input = try {
             openInput()
         } catch (e: Exception) {
             Log.e(TAG, "audio input failed", e)
-            asr.close(); vad.close(); embedder.close(); denoiser?.close()
+            asr.close(); vad.close(); embedder?.close(); denoiser?.close()
             emit(TranscriptEvent.Error("無法開啟麥克風", recoverable = false))
             return@flow
         }
         try {
-            val pipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold), enhancer = denoiser, registry = registry)
+            // Lines end after 0.6 s of silence (not 0.4) so one person's sentence is not chopped up;
+            // the assembler also joins a person's utterances less than 1.5 s apart (ADR-024).
+            val pipeline = StreamingPipeline(
+                asr, vad, embedder, SpeakerClusterer(speakerThreshold),
+                config = tw.captions.core.PipelineConfig(vadEndpointSilenceSec = 0.6f),
+                enhancer = denoiser,
+                registry = if (withSpeakers) registry else null,
+            )
             // 20 ms chunks: the first words appear ~0.04 s sooner than with 100 ms (docs/latency.md).
             val chunk = FloatArray(SAMPLE_RATE / 50)
             while (currentCoroutineContext().isActive) {
@@ -105,7 +115,7 @@ class SherpaOnnxEngine(
             input.close()
             asr.close()
             vad.close()
-            embedder.close()
+            embedder?.close()
             denoiser?.close()
         }
     }.flowOn(Dispatchers.Default)

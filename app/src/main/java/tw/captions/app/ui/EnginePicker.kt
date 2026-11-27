@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,8 @@ fun EnginePicker(
     onUninstall: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onAppearance: (Appearance) -> Unit = {},
+    onSpeakersOn: (Boolean) -> Unit = {},
+    onSpeakerCount: (Int) -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
@@ -110,6 +113,30 @@ fun EnginePicker(
                     billing = if (info.paid) billingLine(ui) else null,
                 )
             }
+            // 說話者 (ADR-027, ADR-033)
+            Text("說話者", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("說話者辨識", color = Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = ui.speakersOn, onCheckedChange = onSpeakersOn)
+            }
+            if (ui.speakersOn) {
+                Text("說話人數", color = Sub, fontSize = 15.sp)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (listOf(0) + (2..6)).forEach { n ->
+                        val label = if (n == 0) "自動" else "$n 人"
+                        if (n == ui.speakerCount) {
+                            androidx.compose.material3.Button(onClick = { onSpeakerCount(n) }) { Text(label) }
+                        } else {
+                            OutlinedButton(onClick = { onSpeakerCount(n) }) { Text(label, color = Ink) }
+                        }
+                    }
+                }
+            }
+            Text(
+                if (ui.speakersOn) "分出不同的人，標 A、B、C。知道有幾個人在講話時選人數，離線分人會比較準。"
+                else "不分人、不顯示標籤，只照停頓換行；離線時比較省電。",
+                color = Sub, fontSize = 14.sp,
+            )
             // 外觀 (ADR-031): follow the system, or always dark / light.
             Text("外觀", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

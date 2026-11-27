@@ -79,6 +79,8 @@ class MainActivity : ComponentActivity() {
                     onUninstall = viewModel::uninstall,
                     onOpenSettings = { showEngines = false; showSettings = true },
                     onAppearance = viewModel::setAppearance,
+                    onSpeakersOn = viewModel::setSpeakersOn,
+                    onSpeakerCount = viewModel::setSpeakerCount,
                 )
             }
             if (showPeople) {
