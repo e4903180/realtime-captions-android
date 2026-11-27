@@ -1,6 +1,8 @@
 package tw.captions.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +66,23 @@ fun CaptionScreen(
         ) {
             Captions(ui, Modifier.weight(1f))
             if (ui.running) LevelMeter(ui.captions.audioLevel)
+            ui.modelDownload?.let { p ->
+                Text(
+                    "第一次使用，正在下載離線模型（約 165 MB）… ${(p * 100).toInt()}%",
+                    color = StableText,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                LevelMeter(p)
+            }
+            ui.debugWav?.let {
+                Text(
+                    "測試模式：播放 $it 代替麥克風",
+                    color = TentativeText,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
             ui.captions.hint?.let {
                 Text(
                     it,
@@ -186,7 +205,8 @@ private fun Controls(
     onFontSize: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Engines on their own scrollable row so they never push the other buttons off narrow screens.
+        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             engines.forEach { engine ->
                 FilterChip(
                     selected = ui.engineId == engine.id,
@@ -200,6 +220,8 @@ private fun Controls(
                     modifier = Modifier.padding(end = 8.dp),
                 )
             }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }
@@ -207,7 +229,7 @@ private fun Controls(
         }
         Spacer(Modifier.height(8.dp))
         Button(
-            onClick = if (ui.running) onStop else onStart,
+            onClick = if (ui.running || ui.modelDownload != null) onStop else onStart,
             modifier = Modifier.fillMaxWidth().height(64.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (ui.running) Color(0xFFC62828) else Color(0xFF2E7D32),
@@ -218,7 +240,14 @@ private fun Controls(
                 Box(Modifier.size(12.dp).background(Color.White, CircleShape))
                 Spacer(Modifier.size(12.dp))
             }
-            Text(if (ui.running) "停止" else "開始", fontSize = 24.sp)
+            Text(
+                when {
+                    ui.running -> "停止"
+                    ui.modelDownload != null -> "下載中…（按一下取消）"
+                    else -> "開始"
+                },
+                fontSize = 24.sp,
+            )
         }
     }
 }

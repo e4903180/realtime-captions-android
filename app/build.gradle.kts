@@ -14,6 +14,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        ndk {
+            // Phones (arm64) and the emulator (x86_64). Keeps the sherpa-onnx native libraries small.
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -33,11 +38,26 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+
+    packaging {
+        resources.excludes += listOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
+    }
+}
+
+// sherpa-onnx publishes its Android library on GitHub releases, not Maven: download it (checked by SHA-256).
+val downloadSherpaAar by tasks.registering(DownloadFile::class) {
+    url.set(Sherpa.androidAar.url)
+    sha256.set(Sherpa.androidAar.sha256)
+    output.set(layout.buildDirectory.file("sherpa/${Sherpa.androidAar.fileName}"))
 }
 
 dependencies {
     implementation(project(":core"))
+    implementation(files(downloadSherpaAar.flatMap { it.output }))
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("com.github.houbb:opencc4j:1.14.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")

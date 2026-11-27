@@ -1,0 +1,216 @@
+{
+  "_comment": "Ground-truth scripts for synthetic test dialogs. Each turn is spoken by one Windows TTS voice. Regenerate wavs with testdata/generate.ps1.",
+  "voices": {
+    "zh_m": "Microsoft Zhiwei",
+    "zh_f1": "Microsoft Yating",
+    "zh_f2": "Microsoft Hanhan Desktop",
+    "en_f": "Microsoft Zira",
+    "en_m1": "Microsoft David",
+    "en_m2": "Microsoft Mark"
+  },
+  "dialogs": [
+    {
+      "id": "zh_clinic",
+      "language": "zh-TW",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "您好，請問今天哪裡不舒服？"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "醫生你好，我這幾天一直咳嗽，晚上也睡不好。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "有沒有發燒或是喉嚨痛的情況？"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "昨天有一點發燒，今天早上量是正常的。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "好，我先幫你聽一下肺部的聲音，請深呼吸。"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "好的，需要把外套脫掉嗎？"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "不用，這樣就可以了。我會開三天的藥給你，記得多喝水。"
+        }
+      ]
+    },
+    {
+      "id": "zh_family_dinner",
+      "language": "zh-TW",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "zh_f2",
+          "text": "晚餐想吃什麼？我們去夜市好不好？"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "夜市人太多了，我比較想在家裡煮麵。"
+        },
+        {
+          "speaker": "C",
+          "voice": "zh_f1",
+          "text": "我同意，冰箱裡還有青菜跟雞蛋。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_f2",
+          "text": "那我去買一點水果，順便買明天的早餐。"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "記得買牛奶，家裡的已經喝完了。"
+        },
+        {
+          "speaker": "C",
+          "voice": "zh_f1",
+          "text": "外面在下雨，出門要帶雨傘喔。"
+        }
+      ]
+    },
+    {
+      "id": "zh_meeting",
+      "language": "zh-TW",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "zh_m",
+          "text": "大家早安，我們開始今天的會議。"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_f1",
+          "text": "上個禮拜的進度已經完成大部分了，還剩下測試的部分。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_m",
+          "text": "測試預計什麼時候可以做完？"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_f1",
+          "text": "如果順利的話，星期五以前應該可以完成。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_m",
+          "text": "好，那下次會議我們再確認一次結果。"
+        }
+      ]
+    },
+    {
+      "id": "zh_codeswitch",
+      "language": "zh-TW",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "你有看到我剛剛傳的 email 嗎？"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "有，我等一下會用 Google Meet 跟客戶開會。"
+        },
+        {
+          "speaker": "A",
+          "voice": "zh_f1",
+          "text": "開完會記得更新一下 project 的進度。"
+        },
+        {
+          "speaker": "B",
+          "voice": "zh_m",
+          "text": "沒問題，我會寫在共享的文件裡面。"
+        }
+      ]
+    },
+    {
+      "id": "en_coffee",
+      "language": "en-US",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "en_m1",
+          "text": "Good morning, what can I get for you today?"
+        },
+        {
+          "speaker": "B",
+          "voice": "en_f",
+          "text": "Could I have a large latte with oat milk, please?"
+        },
+        {
+          "speaker": "A",
+          "voice": "en_m1",
+          "text": "Sure, would you like anything to eat with that?"
+        },
+        {
+          "speaker": "B",
+          "voice": "en_f",
+          "text": "No thanks, just the coffee. Can I pay by card?"
+        },
+        {
+          "speaker": "A",
+          "voice": "en_m1",
+          "text": "Of course, please tap your card on the reader."
+        }
+      ]
+    },
+    {
+      "id": "en_planning",
+      "language": "en-US",
+      "turns": [
+        {
+          "speaker": "A",
+          "voice": "en_f",
+          "text": "Are we still meeting at the train station on Saturday?"
+        },
+        {
+          "speaker": "B",
+          "voice": "en_m2",
+          "text": "Yes, but let's meet half an hour earlier to avoid the crowd."
+        },
+        {
+          "speaker": "C",
+          "voice": "en_m1",
+          "text": "I can bring some sandwiches for the trip."
+        },
+        {
+          "speaker": "A",
+          "voice": "en_f",
+          "text": "Great, I will check the weather forecast tonight."
+        }
+      ]
+    }
+  ],
+  "babble_sentences": [
+    "這家店的咖啡很香，下次我們再來。",
+    "週末要不要一起去爬山？",
+    "那部電影的結局真的很感人。",
+    "我昨天買了一台新的腳踏車。",
+    "今天的捷運比平常還要擠。",
+    "老闆說下午會再送一批貨過來。",
+    "The new menu has a lot of vegetarian options.",
+    "I think the bus is running late again.",
+    "She said the concert starts at eight.",
+    "We should book the tickets before they sell out."
+  ]
+}

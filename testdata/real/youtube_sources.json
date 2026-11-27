@@ -1,0 +1,12 @@
+{
+  "_comment": "Real-life Taiwan-accent clips: YouTube videos under Creative Commons Attribution (CC BY 3.0) with human-made Traditional Chinese subtitles (not auto-generated). Only this list and the scripts are in git; audio and subtitles are downloaded into datasets/youtube_tw by fetch_youtube.py for local testing. Subtitles are often edited or condensed, so CER against them is pessimistic. No speaker labels: score CER and latency only.",
+  "license": "CC BY 3.0 (YouTube 'Creative Commons Attribution license (reuse allowed)'), attribution to each channel below",
+  "clips": [
+    {"id": "_Tsg1TgjGcM", "channel": "PDIS", "title": "協作會議週年記者會 訪談影片", "subs": "zh-TW", "max_minutes": 10, "notes": "several interviewees, government digital office"},
+    {"id": "1dy6ME0FEB4", "channel": "PDIS", "title": "開放政府第102案 嘉義舊監獄活化再利用 協作會議成果影片", "subs": "zh-TW", "max_minutes": 10, "notes": "several speakers, background music"},
+    {"id": "dXpko-DEWlA", "channel": "PDIS", "title": "嘉義舊監協作會議前導影片", "subs": "zh-TW", "max_minutes": 10, "notes": "interviews with background music"},
+    {"id": "jLLKNx4jV2A", "channel": "Ting Cheng", "title": "溫蒂漫步真心話", "subs": "zh", "max_minutes": 10, "notes": "two-person conversation (podcast style)"},
+    {"id": "CMOV1HusJ3Y", "channel": "g0v.tw 台灣零時政府", "title": "為什麼政府與資料都走向「開放」 Ian & Claire", "subs": "zh-TW", "max_minutes": 10, "notes": "two speakers, talk in a room"},
+    {"id": "zatu9UjI0VQ", "channel": "g0v.tw 台灣零時政府", "title": "Wikidata：只要三步驟，把書籍變成資料集 Allen", "subs": "zh-TW", "max_minutes": 10, "notes": "one speaker, talk with code-switching"}
+  ]
+}

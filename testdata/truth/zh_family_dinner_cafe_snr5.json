@@ -1,0 +1,46 @@
+{
+ "id": "zh_family_dinner_cafe_snr5",
+ "dialog": "zh_family_dinner",
+ "language": "zh-TW",
+ "noise": "cafe",
+ "snr_db": 5,
+ "duration": 28.332,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 4.763,
+   "speaker": "A",
+   "text": "晚餐想吃什麼？我們去夜市好不好？"
+  },
+  {
+   "start": 5.693,
+   "end": 9.653,
+   "speaker": "B",
+   "text": "夜市人太多了，我比較想在家裡煮麵。"
+  },
+  {
+   "start": 10.287,
+   "end": 13.524,
+   "speaker": "C",
+   "text": "我同意，冰箱裡還有青菜跟雞蛋。"
+  },
+  {
+   "start": 14.501,
+   "end": 18.445,
+   "speaker": "A",
+   "text": "那我去買一點水果，順便買明天的早餐。"
+  },
+  {
+   "start": 19.234,
+   "end": 22.454,
+   "speaker": "B",
+   "text": "記得買牛奶，家裡的已經喝完了。"
+  },
+  {
+   "start": 23.372,
+   "end": 26.409,
+   "speaker": "C",
+   "text": "外面在下雨，出門要帶雨傘喔。"
+  }
+ ]
+}

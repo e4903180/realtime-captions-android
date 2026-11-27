@@ -1,0 +1,40 @@
+{
+ "id": "zh_meeting",
+ "dialog": "zh_meeting",
+ "language": "zh-TW",
+ "noise": "clean",
+ "snr_db": null,
+ "duration": 25.141,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 4.183,
+   "speaker": "A",
+   "text": "大家早安，我們開始今天的會議。"
+  },
+  {
+   "start": 4.99,
+   "end": 9.905,
+   "speaker": "B",
+   "text": "上個禮拜的進度已經完成大部分了，還剩下測試的部分。"
+  },
+  {
+   "start": 10.836,
+   "end": 13.878,
+   "speaker": "A",
+   "text": "測試預計什麼時候可以做完？"
+  },
+  {
+   "start": 14.491,
+   "end": 18.414,
+   "speaker": "B",
+   "text": "如果順利的話，星期五以前應該可以完成。"
+  },
+  {
+   "start": 19.196,
+   "end": 23.144,
+   "speaker": "A",
+   "text": "好，那下次會議我們再確認一次結果。"
+  }
+ ]
+}

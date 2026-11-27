@@ -1,0 +1,34 @@
+{
+ "id": "en_planning_babble_snr5",
+ "dialog": "en_planning",
+ "language": "en-US",
+ "noise": "babble",
+ "snr_db": 5,
+ "duration": 16.634,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 3.688,
+   "speaker": "A",
+   "text": "Are we still meeting at the train station on Saturday?"
+  },
+  {
+   "start": 4.65,
+   "end": 7.988,
+   "speaker": "B",
+   "text": "Yes, but let's meet half an hour earlier to avoid the crowd."
+  },
+  {
+   "start": 8.931,
+   "end": 11.116,
+   "speaker": "C",
+   "text": "I can bring some sandwiches for the trip."
+  },
+  {
+   "start": 12.128,
+   "end": 14.875,
+   "speaker": "A",
+   "text": "Great, I will check the weather forecast tonight."
+  }
+ ]
+}
