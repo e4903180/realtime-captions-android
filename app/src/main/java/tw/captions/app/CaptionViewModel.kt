@@ -54,6 +54,13 @@ data class UiState(
     val cloudSeconds: Int? = null,
     /** Debug builds: wav file played instead of the microphone. */
     val debugWav: String? = null,
+    /** Paid cloud audio sent from this phone, by day (ADR-028). */
+    val usage: tw.captions.core.CloudUsage = tw.captions.core.CloudUsage(),
+    val usagePrices: tw.captions.core.CloudUsage.Prices = tw.captions.core.CloudUsage.Prices(),
+    /** "yyyy-MM-dd" for the usage screen. */
+    val today: String = "",
+    /** The monthly cloud limit was reached and captions switched to the offline engine. */
+    val usageLimitHit: Boolean = false,
 )
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -77,6 +84,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val vault = KeyVault(app)
 
     private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+
+    private val usageStore = tw.captions.app.settings.UsageStore(app)
 
     private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
 
@@ -102,6 +111,64 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         refreshInstalled()
         refreshKeys()
         loadPeople()
+        _ui.update { it.copy(usage = usageStore.load(), usagePrices = usageStore.loadPrices(), today = usageStore.today()) }
+    }
+
+    // ---- Cloud usage (ADR-028): audio seconds sent to Azure, written every 10 s and on stop ----
+
+    private var unloggedSeconds = 0
+
+    private fun flushUsage() {
+        val sec = unloggedSeconds
+        unloggedSeconds = 0
+        if (sec <= 0) return
+        val today = usageStore.today()
+        val next = _ui.value.usage.add(today, sec.toDouble())
+        usageStore.save(next)
+        _ui.update { it.copy(usage = next, today = today) }
+        if (job != null && isPaid(_ui.value.engineId) && limitReached()) switchToOfflineForLimit()
+    }
+
+    /** The user chose to keep using the cloud past the limit; holds until they press stop. */
+    private var limitOverridden = false
+
+    private fun isPaid(engineId: String) = EngineCatalog.byId(engineId)?.paid == true
+
+    private fun limitReached() = !limitOverridden && _ui.value.usage.overLimit(usageStore.today(), _ui.value.usagePrices)
+
+    /** Over the monthly limit: pause the cloud for now and continue with the offline engine (not saved as the user's choice). */
+    private fun switchToOfflineForLimit() {
+        stop()
+        _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, usageLimitHit = true) }
+        start()
+    }
+
+    /** From the limit notice: go back to the cloud engine and stop asking until the user presses stop. */
+    fun continueCloudAnyway() {
+        limitOverridden = true
+        _ui.update { it.copy(usageLimitHit = false) }
+        selectEngine(AzureSpeechEngine.ID)
+        if (job == null) start()
+    }
+
+    /** The stop button: ends this session, so the next start asks again if still over the limit. */
+    fun stopByUser() {
+        limitOverridden = false
+        stop()
+    }
+
+    fun dismissLimitNotice() {
+        _ui.update { it.copy(usageLimitHit = false) }
+    }
+
+    fun setUsagePrices(prices: tw.captions.core.CloudUsage.Prices) {
+        usageStore.savePrices(prices)
+        _ui.update { it.copy(usagePrices = prices) }
+    }
+
+    fun resetUsage() {
+        usageStore.reset()
+        _ui.update { it.copy(usage = tw.captions.core.CloudUsage(), today = usageStore.today()) }
     }
 
     // ---- 認聲音: people the user named ----
@@ -226,6 +293,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             download(engine.id, startAfter = true)
             return
         }
+        if (isPaid(engine.id) && limitReached()) {
+            switchToOfflineForLimit()
+            return
+        }
         _ui.update { it.copy(running = true) }
         if (EngineCatalog.byId(engine.id)?.paid == true) {
             cloudTimer?.cancel()
@@ -235,6 +306,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     _ui.update { it.copy(cloudSeconds = sec) }
                     kotlinx.coroutines.delay(1000)
                     sec++
+                    unloggedSeconds++
+                    if (unloggedSeconds >= 10) flushUsage()
                 }
             }
         }
@@ -318,6 +391,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun markStopped() {
         cloudTimer?.cancel()
+        flushUsage()
         _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 
