@@ -115,6 +115,9 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
+            ui.cloudNotice?.let {
+                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
+            }
             ui.proofreadNotice?.let {
                 Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
             }
