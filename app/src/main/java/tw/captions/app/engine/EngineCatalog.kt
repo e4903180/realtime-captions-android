@@ -34,6 +34,11 @@ object EngineCatalog {
             packs = SherpaOnnxEngine.Variant.X480.packs,
         ),
         EngineInfo(
+            AzureSpeechEngine.ID, "Azure 雲端",
+            "台灣腔最準（錯字率約 5%），約 1.3 秒出字，會標示說話者。需要網路和你自己的 Azure 金鑰，按使用時間計費。",
+            offline = false, paid = true, speakerTags = true, needsKey = true,
+        ),
+        EngineInfo(
             "android-online", "手機內建（連線）",
             "使用手機內建的 Google 語音辨識，需要網路，不分說話者。",
             offline = false,

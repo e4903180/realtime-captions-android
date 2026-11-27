@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tw.captions.app.ui.CaptionScreen
 import tw.captions.app.ui.EnginePicker
+import tw.captions.app.ui.CloudSettings
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,12 +50,14 @@ class MainActivity : ComponentActivity() {
             }
 
             var showEngines by remember { mutableStateOf(false) }
+            var showSettings by remember { mutableStateOf(false) }
             CaptionScreen(
                 ui = ui,
                 engines = viewModel.engines,
                 onStart = ::startWithPermission,
                 onStop = viewModel::stop,
                 onOpenEngines = { showEngines = true },
+                onOpenSettings = { showSettings = true },
                 onClear = viewModel::clear,
                 onFontSize = viewModel::changeFontSize,
             )
@@ -66,6 +69,16 @@ class MainActivity : ComponentActivity() {
                     onDownload = { viewModel.download(it) },
                     onCancelDownload = viewModel::cancelDownload,
                     onUninstall = viewModel::uninstall,
+                    onOpenSettings = { showEngines = false; showSettings = true },
+                )
+            }
+            if (showSettings) {
+                CloudSettings(
+                    ui = ui,
+                    onDismiss = { showSettings = false },
+                    onSaveAzure = viewModel::saveAzure,
+                    onTestAzure = viewModel::testAzure,
+                    onRemoveAzure = viewModel::removeAzure,
                 )
             }
         }
@@ -84,6 +97,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun handleDebugIntent(intent: Intent?) {
         if (!BuildConfig.DEBUG || intent == null) return
+        intent.getStringExtra("azure_env")?.let { viewModel.importAzureEnv(File(getExternalFilesDir(null), it)) }
         intent.getStringExtra("engine")?.let { viewModel.selectEngine(it) }
         intent.getStringExtra("debug_wav")?.let { name ->
             viewModel.stop()

@@ -58,6 +58,8 @@ dependencies {
     implementation(files(downloadSherpaAar.flatMap { it.output }))
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("com.github.houbb:opencc4j:1.14.0")
+    // Azure AI Speech (cloud engine, user's own key).
+    implementation("com.microsoft.cognitiveservices.speech:client-sdk:1.49.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
