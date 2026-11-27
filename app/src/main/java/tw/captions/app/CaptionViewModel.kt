@@ -10,8 +10,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import android.util.Log
+import java.io.File
 import tw.captions.app.engine.AndroidSpeechEngine
+import tw.captions.app.engine.MicInput
+import tw.captions.app.engine.ModelStore
+import tw.captions.app.engine.SherpaOnnxEngine
+import tw.captions.app.engine.WavFileInput
 import tw.captions.core.CaptionAssembler
+import tw.captions.core.TextProcessor
 import tw.captions.core.CaptionState
 import tw.captions.core.RecognitionConfig
 import tw.captions.core.SpeechEngine
@@ -21,16 +29,37 @@ data class UiState(
     val running: Boolean = false,
     val engineId: String = "android-online",
     val fontSizeSp: Int = 36,
+    /** 0..1 while the offline models are downloading, otherwise null. */
+    val modelDownload: Float? = null,
+    /** Debug builds: wav file played instead of the microphone. */
+    val debugWav: String? = null,
 )
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
+    private val models = ModelStore(app)
+
+    /** Debug builds only: play this wav file instead of using the microphone (see README). */
+    private var debugWav: File? = null
+
     val engines: List<SpeechEngine> = listOf(
         AndroidSpeechEngine(app, onDevice = false),
         AndroidSpeechEngine(app, onDevice = true),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }),
     )
 
-    private val assembler = CaptionAssembler()
+    private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
+
+    init {
+        // Load the conversion tables off the main thread before the first caption needs them.
+        viewModelScope.launch(Dispatchers.Default) { OpenCcTaiwan.toTraditional("预热") }
+    }
+
+    fun useDebugWav(file: File?) {
+        if (!BuildConfig.DEBUG) return
+        debugWav = file
+        _ui.update { it.copy(debugWav = file?.name) }
+    }
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
@@ -39,6 +68,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun start() {
         if (job?.isActive == true) return
         val engine = engines.first { it.id == _ui.value.engineId }
+        if (engine is SherpaOnnxEngine && !models.isReady) {
+            downloadModelsThenStart()
+            return
+        }
         _ui.update { it.copy(running = true) }
         lateinit var self: Job
         self = viewModelScope.launch(start = CoroutineStart.LAZY) {
@@ -59,7 +92,30 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         self.start()
     }
 
+    private var download: Job? = null
+
+    private fun downloadModelsThenStart() {
+        if (download?.isActive == true) return
+        _ui.update { it.copy(modelDownload = 0f, captions = it.captions.copy(error = null)) }
+        download = viewModelScope.launch {
+            try {
+                models.ensure { p -> _ui.update { it.copy(modelDownload = p) } }
+                _ui.update { it.copy(modelDownload = null) }
+                start()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _ui.update { it.copy(modelDownload = null) }
+                throw e
+            } catch (e: Exception) {
+                Log.e("CaptionsModels", "download failed", e)
+                _ui.update {
+                    it.copy(modelDownload = null, captions = it.captions.copy(error = "模型下載失敗，請確認網路後再按一次開始"))
+                }
+            }
+        }
+    }
+
     fun stop() {
+        download?.cancel()
         val current = job
         job = null
         current?.cancel()
