@@ -208,15 +208,18 @@ class StreamingPipeline(
         if (text.isNotEmpty() && text != lastText) {
             lastText = text
             unchangedSec = 0f
-            if (provisional == null && embedder != null &&
-                speech.size >= config.provisionalSpeakerSec * config.sampleRate
-            ) {
-                provisional = clusterer.peek(embedder.embed(speech.toArray()))
-            }
-            val known = registry?.takeIf { !it.isEmpty && embedder != null && speech.size >= config.provisionalSpeakerSec * config.sampleRate }
-            if (known != null && provisionalName == null && !provisionalUnknown) {
-                val person = known.match(embedder!!.embed(speech.toArray()))
-                if (person != null) provisionalName = person.name else provisionalUnknown = true
+            val enough = embedder != null && speech.size >= config.provisionalSpeakerSec * config.sampleRate
+            val known = registry?.takeIf { !it.isEmpty && enough }
+            val needLabel = enough && provisional == null
+            val needPerson = known != null && provisionalName == null && !provisionalUnknown
+            if (needLabel || needPerson) {
+                // The speaker model is the slowest step here: run it once and use it for both.
+                val voice = embedder!!.embed(speech.toArray())
+                if (needLabel) provisional = clusterer.peek(voice)
+                if (needPerson) {
+                    val person = known!!.match(voice)
+                    if (person != null) provisionalName = person.name else provisionalUnknown = true
+                }
             }
             val bg = (provisionalUnknown && config.unknownIsBackground) || (provisionalName == null && focus != null && speech.size >= config.sampleRate / 2 &&
                 focus.isBackground(FocusTracker.levelDb(speech.toArray())))

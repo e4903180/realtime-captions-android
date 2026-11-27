@@ -51,6 +51,11 @@ class SherpaOnnxEngine(
     private val registry: tw.captions.core.VoiceRegistry? = null,
     /** 說話者辨識 on/off (ADR-033): off skips the speaker model, so no labels and less battery. */
     private val speakersOn: () -> Boolean = { true },
+    /**
+     * Live speaker groups. Shared with the caption screen, which corrects them after it regroups
+     * finished lines (ADR-027), and kept between stop and start so letters stay the same.
+     */
+    private val clusterer: SpeakerClusterer = SpeakerClusterer(speakerThreshold),
 ) : SpeechEngine {
     override val id = variant.id
     override val displayName = variant.displayName
@@ -94,7 +99,7 @@ class SherpaOnnxEngine(
             // Lines end after 0.6 s of silence (not 0.4) so one person's sentence is not chopped up;
             // the assembler also joins a person's utterances less than 1.5 s apart (ADR-024).
             val pipeline = StreamingPipeline(
-                asr, vad, embedder, SpeakerClusterer(speakerThreshold),
+                asr, vad, embedder, clusterer,
                 config = tw.captions.core.PipelineConfig(vadEndpointSilenceSec = 0.6f),
                 enhancer = denoiser,
                 registry = if (withSpeakers) registry else null,
