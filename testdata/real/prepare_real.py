@@ -60,8 +60,27 @@ def read_wav(path, channel=0, max_sec=None):
     return data.astype(np.float32) / 32768.0
 
 
+def tighten(audio, segs):
+    """Moves each turn's start/end to where speech actually starts/stops inside the clip.
+
+    Read-speech corpora (Common Voice, AISHELL-1) have up to ~1 s of silence before and after
+    each sentence; without this, latency would be measured from the silence instead of the voice."""
+    for s in segs:
+        a, b = int(s["start"] * SR), int(s["end"] * SR)
+        x = np.abs(audio[a:b])
+        if len(x) < 320:
+            continue
+        env = np.convolve(x, np.ones(320) / 320, mode="same")
+        idx = np.flatnonzero(env > 0.1 * env.max())
+        if len(idx):
+            s["start"], s["end"] = round((a + idx[0]) / SR, 3), round((a + idx[-1]) / SR, 3)
+    return segs
+
+
 def save(out, name, dialog, audio, segs, noise, language="zh-CN"):
     write_wav(out / "wavs" / f"{name}.wav", audio)
+    if noise in ("real-clean", "real-read"):
+        segs = tighten(audio, segs)
     truth = {"id": name, "dialog": dialog, "language": language, "noise": noise, "snr_db": None,
              "duration": round(len(audio) / SR, 3), "segments": segs}
     (out / "truth").mkdir(parents=True, exist_ok=True)

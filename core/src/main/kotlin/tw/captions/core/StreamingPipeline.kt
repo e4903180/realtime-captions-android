@@ -66,6 +66,17 @@ data class PipelineConfig(
      * milliseconds it is still holding back for look-ahead instead of dropping them.
      */
     val tailPaddingSec: Float = 0.4f,
+    /**
+     * Lines with less speech than this never start a new speaker: short embeddings are noisy and
+     * would otherwise split one person into several.
+     */
+    val minNewSpeakerSec: Float = 1.5f,
+    /**
+     * People who talk without real pauses would get one endless line. After this long, a short
+     * breath ([shortPauseSec]) is enough to end the line.
+     */
+    val maxLineSec: Float = 8f,
+    val shortPauseSec: Float = 0.15f,
     /** Emit [TranscriptEvent.NoSpeechDetected] after this much silence in a row. */
     val noSpeechHintSec: Float = 6f,
 )
@@ -90,6 +101,7 @@ class StreamingPipeline(
     private var silenceSec = 0f
     private var quietSec = 0f
     private var unchangedSec = 0f
+    private var lineSec = 0f
     private var started = false
 
     /** Seconds of audio consumed so far. */
@@ -108,6 +120,7 @@ class StreamingPipeline(
         silenceSec = 0f
         quietSec = 0f
         unchangedSec = 0f
+        lineSec = 0f
         started = false
         audioTimeSec = 0.0
     }
@@ -158,8 +171,10 @@ class StreamingPipeline(
             out += TranscriptEvent.Partial(text, provisional)
         }
 
+        if (text.isNotEmpty()) lineSec += chunkSec
         val vadEndpoint = config.vadEndpointSilenceSec?.let {
-            vad != null && text.isNotEmpty() && silenceSec >= it && unchangedSec >= config.vadEndpointStableSec
+            val pause = if (lineSec >= config.maxLineSec) minOf(it, config.shortPauseSec) else it
+            vad != null && text.isNotEmpty() && silenceSec >= pause && unchangedSec >= config.vadEndpointStableSec
         } ?: false
         if (vadEndpoint) {
             asr.accept(FloatArray((config.tailPaddingSec * config.sampleRate).toInt()))
@@ -177,7 +192,8 @@ class StreamingPipeline(
         val final = if (text.isNotEmpty()) {
             val speaker = when {
                 embedder == null -> null
-                speech.size >= config.minSpeakerSec * config.sampleRate -> clusterer.assign(embedder.embed(speech.toArray()))
+                speech.size >= config.minSpeakerSec * config.sampleRate ->
+                    clusterer.assign(embedder.embed(speech.toArray()), allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
                 else -> provisional ?: lastSpeaker
             }
             if (speaker != null) lastSpeaker = speaker
@@ -189,6 +205,7 @@ class StreamingPipeline(
         speech.clear()
         lastText = ""
         unchangedSec = 0f
+        lineSec = 0f
         provisional = null
         return final
     }

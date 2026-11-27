@@ -26,7 +26,7 @@ fun main(args: Array<String>) {
     fun opt(name: String) = opts.indexOf(name).takeIf { it >= 0 }?.let { opts[it + 1] }
     val modelsDir = File(opt("--models") ?: System.getenv("SHERPA_MODELS") ?: error("pass --models <dir>"))
     opt("--noise")?.let { dir ->
-        noiseBenchmark(modelsDir, File(dir), File(opt("--out") ?: "docs/benchmark-noise.md"))
+        noiseBenchmark(modelsDir, File(dir), File(opt("--out") ?: "docs/benchmark-noise.md"), quick = "--quick" in opts)
         return
     }
     val realDir = opt("--real")?.let(::File)
@@ -41,6 +41,26 @@ fun main(args: Array<String>) {
         val base = EngineSetup(modelsDir)
         // Main configuration on everything; alternatives only on the Taiwan-accent set, which decides model choice.
         val taiwan = truths.filter { it.language == "zh-TW" }
+        if ("--sweep-new-speaker" in opts) {
+            // Speaker-splitting trade-off: short read sentences (Common Voice) vs real meetings.
+            val files = truths.filter { it.id.startsWith("cvtw_") || it.id.startsWith("alimeeting_") }
+            val results = listOf(0.6f, 1.0f, 1.5f).map { v ->
+                val setup = base.copy(pipeline = PipelineConfig(minNewSpeakerSec = v))
+                System.err.println("== minNewSpeakerSec $v")
+                SherpaStack(setup).use { stack -> setup to files.map { runFile(stack, it, testdata, realTime) } }
+            }
+            out.parentFile.mkdirs()
+            out.writeText(buildString {
+                appendLine("| Lines that may start a new speaker | Dataset | Speaker accuracy | Speakers found / true |")
+                appendLine("|---|---|---|---|")
+                for ((setup, rs) in results) for ((ds, g) in rs.groupBy { datasetOf(it.truth) }) {
+                    appendLine("| ≥ ${setup.pipeline.minNewSpeakerSec} s | ${DATASETS[ds] ?: ds} | ${pct(speakerAcc(g))} | " +
+                        "${f1(g.map { it.speakers }.average())} / ${f1(g.map { r -> r.truth.segments.map { it.speaker }.distinct().size }.average())} |")
+                }
+            })
+            System.err.println("wrote $out")
+            return
+        }
         val runs = listOf(base to truths) + if (quick) emptyList() else listOf(
             base.copy(asrModel = AsrModel.XASR_480) to taiwan,
             base.copy(asrModel = AsrModel.BILINGUAL_2023) to taiwan,
@@ -233,6 +253,7 @@ private fun errRateNoFiller(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN
 
 private fun speakerAcc(rs: List<FileResult>): Double {
     val w = rs.filter { !it.speakerAcc.isNaN() }
+    if (w.isEmpty()) return Double.NaN
     return w.sumOf { it.speakerAcc * it.refTokens } / w.sumOf { it.refTokens }.coerceAtLeast(1)
 }
 
@@ -357,10 +378,13 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
         val groups = rs.groupBy { datasetOf(it.truth) }
         for (ds in DATASETS.keys.filter { it in groups } + groups.keys.filter { it !in DATASETS }) {
             val group = groups.getValue(ds)
-            val ttfp = group.flatMap { it.firstPartialLatency }
-            val fin = group.flatMap { it.finalLatency }
+            // Subtitle cue times are editorial (cues often appear before or after the words), so they
+            // cannot time captions; latency for that set is left out.
+            val timed = ds != "yttw"
+            val ttfp = if (timed) group.flatMap { it.firstPartialLatency } else emptyList()
+            val fin = if (timed) group.flatMap { it.finalLatency } else emptyList()
             val found = group.map { it.speakers }.average()
-            val truthN = group.map { r -> r.truth.segments.map { it.speaker }.filter { it != "?" }.distinct().size }.average()
+            val truthN = group.map { r -> r.truth.segments.map { it.speaker }.filter { it != "?" }.distinct().size }.average().takeIf { it > 0 } ?: Double.NaN
             appendLine(
                 "| ${setup.label} | ${DATASETS[ds] ?: ds} | ${group.size} | ${f1(group.sumOf { it.truth.duration } / 60)} | ${pct(errRate(group))} | ${pct(errRateNoFiller(group))} | " +
                     "${f2(percentile(ttfp, 50.0))} / ${f2(percentile(ttfp, 90.0))} | ${f2(percentile(fin, 50.0))} / ${f2(percentile(fin, 90.0))} | " +
@@ -374,12 +398,15 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
     if (meetings.isNotEmpty()) {
         appendLine("## Overlapping speech (AliMeeting)")
         appendLine()
-        appendLine("Turns where another person talks at the same time vs turns with one speaker. Each caption line is credited to the turn it overlaps most, " +
-            "so this is approximate; the engine has a single recognizer and cannot transcribe two people at once.")
+        appendLine("Per meeting, sorted by how much of the speech has two or more people talking at once. The engine has one recognizer, " +
+            "so overlapped speech comes out as one mixed line at best.")
         appendLine()
-        appendLine("| Turns | Reference characters | CER |")
-        appendLine("|---|---|---|")
-        for ((k, v) in overlapBreakdown(meetings)) appendLine("| $k | ${v.second} | ${pct(v.first.toDouble() / v.second.coerceAtLeast(1))} |")
+        appendLine("| Meeting | Share of speech with 2+ people talking | CER | Speaker accuracy | Speakers found / true |")
+        appendLine("|---|---|---|---|---|")
+        for (r in meetings.sortedBy { overlapShare(it.truth) }) {
+            appendLine("| ${r.truth.id.removePrefix("alimeeting_")} | ${pct(overlapShare(r.truth))} | ${pct(r.errors.toDouble() / r.refTokens)} | ${pct(r.speakerAcc)} | " +
+                "${r.speakers} / ${r.truth.segments.map { it.speaker }.distinct().size} |")
+        }
         appendLine()
     }
     appendLine("## Per session — ${mainSetup.label}")

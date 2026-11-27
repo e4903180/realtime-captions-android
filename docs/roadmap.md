@@ -15,14 +15,18 @@
 - 桌機 benchmark 工具（`:desktop`）與 TTS 多人對話測資；11 組設定比較（[benchmark.md](benchmark.md)）
 - debug 版「wav 當麥克風」，可在模擬器上自動驗證字幕和說話者標籤
 
+- 台灣腔真實語音、噪音驗證、Whisper／Breeze（自己的 4070）、Google Chirp 3／V1、Azure 對照（benchmark-real／noise／engines.md，ADR-014、015）
+
 ## 進行中
 
-- 台灣口音真實語音 benchmark（Common Voice zh-TW、台大課程、YouTube CC 對談；中國口音對照）→ benchmark-real.md
-- 噪音驗證（真實噪音、SNR 20 到 -5 dB、GTCRN／DPDFNet 降噪比較、純噪音假字幕）→ benchmark-noise.md，並決定降噪預設值
-- Whisper 對照組（large-v3、large-v3-turbo、Breeze-ASR-25，GPU）
-- Pixel Fold 模擬器：摺疊／展開時字幕不中斷
+- 說話者門檻取捨（短句多長才可以建立新的說話者：0.6／1.0／1.5 秒）
 
 ## 接下來
+
+- 引擎清單：每個引擎有副標題（速度、準確度、離線／連線、費用）；離線模型只下載使用者選的，預設一組，全部可以卸載
+- 「只顯示近處主要說話者」：用音量和聲紋過濾電視、背景人聲造成的假字幕
+- Azure 付費雲端選項（有說話者標籤）；自架伺服器（4070＋Breeze）給課程、演講用
+- 台灣地名、用語的修正字典或熱詞
 
 - 雲端／自架辨識伺服器（Docker、WebSocket 串流、faster-whisper 或台灣調校模型、台語）
 - 文字優化：使用者自訂詞彙、依停頓分段、LLM 修正標點與用語

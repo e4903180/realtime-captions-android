@@ -24,11 +24,15 @@ class SpeakerClusterer(
         counts.clear()
     }
 
-    /** Assigns [embedding] to a speaker and updates that speaker's profile. */
-    fun assign(embedding: FloatArray): SpeakerId {
+    /**
+     * Assigns [embedding] to a speaker and updates that speaker's profile. With [allowNew] = false
+     * (e.g. for very short lines, whose embeddings are unreliable) it always joins the closest
+     * known speaker instead of starting a new one.
+     */
+    fun assign(embedding: FloatArray, allowNew: Boolean = true): SpeakerId {
         val e = normalized(embedding)
         val (best, sim) = closest(e)
-        if (best >= 0 && (sim >= threshold || centroids.size >= maxSpeakers)) {
+        if (best >= 0 && (sim >= threshold || centroids.size >= maxSpeakers || !allowNew)) {
             update(best, e)
             return SpeakerId(best)
         }
