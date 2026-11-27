@@ -61,6 +61,8 @@ fun EnginePicker(
     onSpeakersOn: (Boolean) -> Unit = {},
     onSpeakerCount: (Int) -> Unit = {},
     onVocabulary: (String) -> Unit = {},
+    onMic: (Int) -> Unit = {},
+    onSystemNoiseSuppression: (Boolean) -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
@@ -152,6 +154,23 @@ fun EnginePicker(
             Text(
                 if (ui.speakersOn) "分出不同的人，標 A、B、C。知道有幾個人在講話時選人數，離線分人會比較準。"
                 else "不分人、不顯示標籤，只照停頓換行；離線時比較省電。",
+                color = Sub, fontSize = 14.sp,
+            )
+            // 麥克風: the phone's own, or a wired / USB one placed near the speaker.
+            Text("麥克風", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            ui.micChoices.forEach { (type, label) ->
+                Row(Modifier.fillMaxWidth().clickable { onMic(type) }, verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = ui.micType == type, onClick = { onMic(type) })
+                    Text(label, color = Ink, fontSize = 16.sp)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("手機內建降噪", color = Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = ui.systemNoiseSuppression, onCheckedChange = onSystemNoiseSuppression)
+            }
+            Text(
+                "吵的地方，把有線或 USB 麥克風放在說話的人附近最有效；插上後會出現在這裡。藍牙麥克風還不支援。" +
+                    "如果小聲的話常常沒出字，可以試著關掉手機內建降噪。",
                 color = Sub, fontSize = 14.sp,
             )
             // 外觀 (ADR-031): follow the system, or always dark / light.

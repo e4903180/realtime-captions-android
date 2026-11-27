@@ -18,7 +18,12 @@ interface AudioInput : AutoCloseable {
 }
 
 /** The phone microphone, tuned for speech recognition, with the platform noise suppressor when there is one. */
-class MicInput @SuppressLint("MissingPermission") constructor() : AudioInput {
+class MicInput @SuppressLint("MissingPermission") constructor(
+    /** Wired or USB microphone to use instead of the phone's own, when it is plugged in. */
+    preferred: android.media.AudioDeviceInfo? = null,
+    /** The phone's own noise suppression. Some phones remove quiet speech with it; can be switched off. */
+    noiseSuppression: Boolean = true,
+) : AudioInput {
     private val minBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
     private val record = AudioRecord(
         MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -28,12 +33,13 @@ class MicInput @SuppressLint("MissingPermission") constructor() : AudioInput {
         maxOf(minBytes, SAMPLE_RATE * 2 / 2), // at least 0.5 s
     )
     private val suppressor: NoiseSuppressor? =
-        if (NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull() else null
+        if (noiseSuppression && NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull() else null
     private var pcm = ShortArray(0)
 
     init {
         check(record.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord init failed" }
-        Log.i(TAG, "mic: noise suppressor ${if (suppressor != null) "on" else "not available"}")
+        Log.i(TAG, "mic: noise suppressor ${if (suppressor != null) "on" else "off or not available"}")
+        if (preferred != null) Log.i(TAG, "mic: prefer ${preferred.productName} -> ${record.setPreferredDevice(preferred)}")
         record.startRecording()
     }
 
@@ -116,3 +122,29 @@ class WavFileInput(file: File) : AudioInput {
 
 const val SAMPLE_RATE = 16_000
 private const val TAG = "CaptionsAudio"
+
+/** Microphones the user can choose: the phone's own, or a wired / USB one that is plugged in. */
+object Microphones {
+    /** 0 = let the phone decide. */
+    const val AUTO = 0
+
+    private val external = mapOf(
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET to "有線耳機麥克風",
+        android.media.AudioDeviceInfo.TYPE_USB_DEVICE to "USB 麥克風",
+        android.media.AudioDeviceInfo.TYPE_USB_HEADSET to "USB 耳機麥克風",
+    )
+
+    private fun inputs(context: android.content.Context) =
+        context.getSystemService(android.media.AudioManager::class.java).getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
+
+    /** Device type to label, for the settings list: automatic, the phone's microphone, then plugged-in ones. */
+    fun choices(context: android.content.Context): List<Pair<Int, String>> =
+        listOf(AUTO to "自動", android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC to "手機麥克風") +
+            inputs(context).filter { it.type in external }.distinctBy { it.type }.map { d ->
+                d.type to "${external[d.type]}（${d.productName}）"
+            }
+
+    /** The plugged-in device of [type], or null (automatic, or it was unplugged: the phone decides). */
+    fun find(context: android.content.Context, type: Int): android.media.AudioDeviceInfo? =
+        if (type == AUTO) null else inputs(context).firstOrNull { it.type == type }
+}
