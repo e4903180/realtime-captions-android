@@ -33,6 +33,18 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** AI 校稿 (ADR-026): Claude corrects finished lines; off by default, needs the user's Anthropic key. */
+    val proofreadEnabled: Boolean = false,
+    val proofreadModel: tw.captions.app.proofread.Proofreader.Model = tw.captions.app.proofread.Proofreader.Model.OPUS,
+    /** "••••1a2b" when an Anthropic key is stored. */
+    val anthropicKeyHint: String? = null,
+    val anthropicTesting: Boolean = false,
+    val anthropicTestMessage: String? = null,
+    /** Shown in yellow under the captions when proof-reading is retrying or paused. */
+    val proofreadNotice: String? = null,
+    /** AI proof-reading this month: requests and estimated US dollars. */
+    val proofreadRequests: Int = 0,
+    val proofreadCost: Double = 0.0,
     /** 自訂詞彙: names and terms the recognizer should prefer (Azure phrase list). */
     val vocabulary: List<String> = emptyList(),
     /** 說話者辨識 (ADR-033): off = no speaker model, no labels. */
@@ -153,6 +165,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(speakersOn = prefs.getBoolean("speakers_on", true), speakerCount = prefs.getInt("speaker_count", 0)) }
         _ui.update { it.copy(fontSizeSp = prefs.getInt("font_size", it.fontSizeSp).coerceIn(20, 72)) }
         _ui.update { it.copy(vocabulary = parseVocabulary(prefs.getString("vocabulary", "")!!)) }
+        val proofModel = runCatching { tw.captions.app.proofread.Proofreader.Model.valueOf(prefs.getString("proofread_model", "OPUS")!!) }
+            .getOrDefault(tw.captions.app.proofread.Proofreader.Model.OPUS)
+        val (proofRequests, proofCost) = usageStore.claudeThisMonth()
+        _ui.update { it.copy(proofreadEnabled = prefs.getBoolean("proofread_enabled", false), proofreadModel = proofModel, proofreadRequests = proofRequests, proofreadCost = proofCost) }
         viewModelScope.launch(Dispatchers.IO) {
             val all = transcriptStore.loadAll()
             _ui.update { it.copy(transcripts = all) }
@@ -293,7 +309,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetUsage() {
         usageStore.reset()
-        _ui.update { it.copy(usage = tw.captions.core.CloudUsage(), today = usageStore.today()) }
+        _ui.update { it.copy(usage = tw.captions.core.CloudUsage(), today = usageStore.today(), proofreadRequests = 0, proofreadCost = 0.0) }
     }
 
     // ---- 認聲音: people the user named ----
@@ -377,7 +393,127 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 azureKeyHint = vault.hint(KeyVault.AZURE_KEY),
                 azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia",
+                anthropicKeyHint = vault.hint(KeyVault.ANTHROPIC_KEY),
             )
+        }
+    }
+
+    // ---- AI 校稿 (ADR-026): finished lines are corrected by Claude a moment after they appear ----
+
+    private val Proof = tw.captions.app.proofread.Proofreader
+
+    /** Text of each line as it was last sent (or as corrected), so a line is checked once per version. */
+    private val reviewed = mutableMapOf<Long, String>()
+    private var proofTimer: Job? = null
+    private var proofreading = false
+    private var proofFailures = 0
+    /** The key that failed for good (wrong key, no credit): no more requests until it changes. */
+    private var pausedForKey: String? = null
+
+    private fun proofreadActive() = _ui.value.proofreadEnabled && _ui.value.anthropicKeyHint != null
+
+    private fun uncheckedLines(): List<tw.captions.core.ProofreadLine> =
+        _ui.value.captions.lines.mapIndexedNotNull { i, l ->
+            val id = assembler.lineId(i)
+            if (id < 0 || l.background || l.text.isBlank() || reviewed[id] == l.text) null
+            else tw.captions.core.ProofreadLine(id, l.speakerName ?: l.speaker?.label, l.text)
+        }
+
+    private fun scheduleProofreading(afterMs: Long? = null) {
+        if (!proofreadActive() || proofreading) return
+        val unchecked = uncheckedLines()
+        if (unchecked.isEmpty()) return
+        proofTimer?.cancel()
+        // Wait a moment: the same person may still add to the line (lines join within 1.5 s).
+        val wait = afterMs ?: if (unchecked.size >= tw.captions.core.Proofreading.MAX_LINES) 0L else 2000L
+        proofTimer = viewModelScope.launch {
+            kotlinx.coroutines.delay(wait)
+            proofreadNow()
+        }
+    }
+
+    private suspend fun proofreadNow() {
+        if (!proofreadActive() || proofreading) return
+        val key = vault.get(KeyVault.ANTHROPIC_KEY) ?: return
+        if (key == pausedForKey) return
+        val batch = uncheckedLines().take(tw.captions.core.Proofreading.MAX_LINES)
+        if (batch.isEmpty()) return
+        val lines = _ui.value.captions.lines
+        val first = lines.indices.firstOrNull { assembler.lineId(it) == batch.first().id } ?: return
+        val context = lines.subList(maxOf(0, first - tw.captions.core.Proofreading.CONTEXT_LINES), first)
+            .map { "${it.speakerName ?: it.speaker?.label ?: "?"}：${it.text}" }
+        val model = _ui.value.proofreadModel
+        proofreading = true
+        val result = runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { Proof.proofread(key, model, context, batch) } }
+        proofreading = false
+        result.onSuccess { r ->
+            proofFailures = 0
+            usageStore.addClaude((r.inputTokens * model.inputPerMTok + r.outputTokens * model.outputPerMTok) / 1_000_000)
+            val (requests, cost) = usageStore.claudeThisMonth()
+            var captions = _ui.value.captions
+            for (sent in batch) {
+                reviewed[sent.id] = sent.text
+                val fixed = r.fixed[sent.id] ?: continue
+                // Only if the line is still what was sent: it may have grown in the meantime.
+                val index = captions.lines.indices.firstOrNull { assembler.lineId(it) == sent.id } ?: continue
+                if (captions.lines[index].text != sent.text) continue
+                captions = assembler.replaceLineText(sent.id, fixed)
+                reviewed[sent.id] = fixed
+            }
+            _ui.update { it.copy(captions = captions, proofreadNotice = null, proofreadRequests = requests, proofreadCost = cost) }
+            recordLines()
+            scheduleProofreading()
+        }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            val failure = e as? tw.captions.app.proofread.Proofreader.Failure
+            val reason = failure?.message ?: "發生錯誤"
+            if (failure?.permanent == true) {
+                pausedForKey = key
+                _ui.update { it.copy(proofreadNotice = "AI 校稿暫停：$reason") }
+                return
+            }
+            proofFailures++
+            val waitSec = minOf(60, 5 * (1 shl minOf(proofFailures - 1, 4)))
+            if (proofFailures >= 2) _ui.update { it.copy(proofreadNotice = "AI 校稿$reason，$waitSec 秒後重試") }
+            scheduleProofreading(afterMs = waitSec * 1000L)
+        }
+    }
+
+    fun setProofreadEnabled(on: Boolean) {
+        prefs.edit().putBoolean("proofread_enabled", on).apply()
+        _ui.update { it.copy(proofreadEnabled = on, proofreadNotice = null) }
+        if (on) scheduleProofreading() else proofTimer?.cancel()
+    }
+
+    fun setProofreadModel(model: tw.captions.app.proofread.Proofreader.Model) {
+        prefs.edit().putString("proofread_model", model.name).apply()
+        _ui.update { it.copy(proofreadModel = model) }
+    }
+
+    fun saveAnthropicKey(key: String) {
+        if (key.isEmpty()) return
+        vault.put(KeyVault.ANTHROPIC_KEY, key)
+        pausedForKey = null
+        proofFailures = 0
+        _ui.update { it.copy(anthropicTestMessage = null, proofreadNotice = null) }
+        refreshKeys()
+        testAnthropicKey()
+    }
+
+    fun removeAnthropicKey() {
+        vault.remove(KeyVault.ANTHROPIC_KEY)
+        proofTimer?.cancel()
+        _ui.update { it.copy(anthropicTestMessage = null, proofreadNotice = null) }
+        refreshKeys()
+    }
+
+    fun testAnthropicKey() {
+        val key = vault.get(KeyVault.ANTHROPIC_KEY) ?: return
+        _ui.update { it.copy(anthropicTesting = true, anthropicTestMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val problem = Proof.testKey(key)
+            _ui.update { it.copy(anthropicTesting = false, anthropicTestMessage = problem?.let { p -> "不能使用：$p" } ?: "可以使用：金鑰正確") }
+            if (problem == null) kotlinx.coroutines.withContext(Dispatchers.Main) { scheduleProofreading() }
         }
     }
 
@@ -491,7 +627,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     _ui.update { it.copy(captions = captions) }
                     // Only finished lines change the transcript.
-                    if (event is tw.captions.core.TranscriptEvent.Final) recordLines()
+                    if (event is tw.captions.core.TranscriptEvent.Final) {
+                        recordLines()
+                        scheduleProofreading()
+                    }
                 }
             } finally {
                 // The engine stopped by itself (e.g. a fatal error), not via stop().
@@ -580,6 +719,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clear() {
         assembler.reset()
+        reviewed.clear()
+        proofTimer?.cancel()
         clusterer.replaceProfiles(emptyMap())
         _ui.update { it.copy(captions = CaptionState(isListening = it.running)) }
     }

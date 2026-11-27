@@ -124,6 +124,11 @@ class MainActivity : ComponentActivity() {
                     onRemoveAzure = viewModel::removeAzure,
                     onSetPrices = viewModel::setUsagePrices,
                     onResetUsage = viewModel::resetUsage,
+                    onProofreadEnabled = viewModel::setProofreadEnabled,
+                    onProofreadModel = viewModel::setProofreadModel,
+                    onSaveAnthropic = viewModel::saveAnthropicKey,
+                    onTestAnthropic = viewModel::testAnthropicKey,
+                    onRemoveAnthropic = viewModel::removeAnthropicKey,
                 )
             }
             }

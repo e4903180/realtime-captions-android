@@ -54,6 +54,11 @@ fun CloudSettings(
     onRemoveAzure: () -> Unit,
     onSetPrices: (CloudUsage.Prices) -> Unit = {},
     onResetUsage: () -> Unit = {},
+    onProofreadEnabled: (Boolean) -> Unit = {},
+    onProofreadModel: (tw.captions.app.proofread.Proofreader.Model) -> Unit = {},
+    onSaveAnthropic: (String) -> Unit = {},
+    onTestAnthropic: () -> Unit = {},
+    onRemoveAnthropic: () -> Unit = {},
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -75,6 +80,7 @@ fun CloudSettings(
             )
             AzureCard(ui, onSaveAzure, onTestAzure, onRemoveAzure)
             UsageCard(ui, onSetPrices, onResetUsage)
+            ProofreadCard(ui, onProofreadEnabled, onProofreadModel, onSaveAnthropic, onTestAnthropic, onRemoveAnthropic)
             Text(
                 "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供。",
                 color = Sub, fontSize = 14.sp,
@@ -240,4 +246,69 @@ private fun formatDuration(seconds: Double): String {
     val h = s / 3600
     val m = (s % 3600) / 60
     return if (h > 0) "$h 小時 $m 分" else "$m 分 ${s % 60} 秒"
+}
+
+/** AI 校稿 (ADR-026): Claude corrects finished lines with the user's own Anthropic key. */
+@Composable
+private fun ProofreadCard(
+    ui: UiState,
+    onEnabled: (Boolean) -> Unit,
+    onModel: (tw.captions.app.proofread.Proofreader.Model) -> Unit,
+    onSave: (String) -> Unit,
+    onTest: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var key by remember { mutableStateOf("") }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, LocalPalette.current.border, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("AI 校稿（Claude）", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(checked = ui.proofreadEnabled, onCheckedChange = onEnabled, enabled = ui.anthropicKeyHint != null)
+        }
+        Text(
+            "每句話說完約 2 秒後，請 Claude 依上下文修正錯字和標點，字幕會直接更新。只傳送字幕文字，不傳聲音。" +
+                "需要你自己的 Anthropic 金鑰，按用量計費。",
+            color = Sub, fontSize = 15.sp,
+        )
+        Text(
+            "計費：Opus 5.5 每百萬 token US\$4（輸入）／US\$20（輸出），Haiku 5.5 為 US\$0.10／US\$0.50。" +
+                "本月已校稿 ${ui.proofreadRequests} 次，預估 US\$${"%.2f".format(ui.proofreadCost)}。",
+            color = Sub, fontSize = 14.sp,
+        )
+        Text(
+            if (ui.anthropicKeyHint != null) "目前金鑰：${ui.anthropicKeyHint}" else "尚未設定金鑰",
+            color = if (ui.anthropicKeyHint != null) Accent else LocalPalette.current.warn, fontSize = 16.sp,
+        )
+        OutlinedTextField(
+            value = key,
+            onValueChange = { key = it.trim() },
+            label = { Text(if (ui.anthropicKeyHint != null) "換一組金鑰" else "Anthropic API 金鑰") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        tw.captions.app.proofread.Proofreader.Model.entries.forEach { m ->
+            Row(Modifier.fillMaxWidth().clickable { onModel(m) }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = ui.proofreadModel == m, onClick = { onModel(m) })
+                Text(m.label, color = Ink, fontSize = 16.sp)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onSave(key); key = "" }, enabled = key.isNotEmpty()) { Text("儲存") }
+            OutlinedButton(onClick = onTest, enabled = ui.anthropicKeyHint != null && !ui.anthropicTesting) {
+                Text(if (ui.anthropicTesting) "測試中…" else "測試金鑰", color = Ink)
+            }
+            if (ui.anthropicKeyHint != null) {
+                TextButton(onClick = onRemove) { Text("刪除金鑰", color = LocalPalette.current.error) }
+            }
+        }
+        ui.anthropicTestMessage?.let {
+            Text(it, color = if (it.startsWith("可以")) Accent else LocalPalette.current.warn, fontSize = 15.sp)
+        }
+    }
 }
