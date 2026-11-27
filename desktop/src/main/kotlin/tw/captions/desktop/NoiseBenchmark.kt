@@ -10,11 +10,11 @@ import java.util.concurrent.Executors
 private const val USABLE_CER = 0.15
 
 /** Runs every noise-bench file with and without each denoiser and writes docs/benchmark-noise.md. */
-fun noiseBenchmark(modelsDir: File, dir: File, out: File) {
+fun noiseBenchmark(modelsDir: File, dir: File, out: File, quick: Boolean = false) {
     val truths = loadTruths(dir)
     require(truths.isNotEmpty()) { "no files in $dir; run testdata/noise/make_noise_set.py" }
     val base = EngineSetup(modelsDir)
-    val setups = listOf(base, base.copy(denoiser = DenoiserModel.GTCRN), base.copy(denoiser = DenoiserModel.DPDFNET2))
+    val setups = if (quick) listOf(base) else listOf(base, base.copy(denoiser = DenoiserModel.GTCRN), base.copy(denoiser = DenoiserModel.DPDFNET2))
     // The three configurations run side by side (one thread each) so the run finishes in reasonable
     // time; latency includes that CPU contention, so it is a little pessimistic.
     val pool = Executors.newFixedThreadPool(setups.size)
@@ -161,23 +161,18 @@ fun noiseReport(results: List<Pair<EngineSetup, List<FileResult>>>, denoiserRtf:
     appendLine()
 }
 
-/**
- * AliMeeting: CER on turns that overlap another speaker vs turns with only one speaker talking.
- * Each caption line is assigned to the turn it overlaps most; returns (errors, ref) per group.
- */
-fun overlapBreakdown(rs: List<FileResult>): Map<String, Pair<Int, Int>> {
-    val acc = mutableMapOf("overlapped" to (0 to 0), "single speaker" to (0 to 0))
-    for (r in rs) {
-        val segs = r.truth.segments
-        val overlapped = segs.map { s -> segs.any { o -> o !== s && o.speaker != s.speaker && o.start < s.end && s.start < o.end } }
-        val hypBySeg = r.utterances.groupBy { matchSegment(it, segs) }
-        for ((i, s) in segs.withIndex()) {
-            val ref = scoringTokens(OpenCcTaiwan.toTraditional(s.text))
-            val hyp = hypBySeg[i].orEmpty().flatMap { scoringTokens(it.text) }
-            val key = if (overlapped[i]) "overlapped" else "single speaker"
-            val (e, n) = acc.getValue(key)
-            acc[key] = (e + editDistance(ref, hyp)) to (n + ref.size)
-        }
+/** Share of speech time (union of all turns) during which two or more people talk. */
+fun overlapShare(t: Truth): Double {
+    val step = 0.05
+    val end = t.segments.maxOfOrNull { it.end } ?: return Double.NaN
+    var speech = 0
+    var overlap = 0
+    var x = 0.0
+    while (x < end) {
+        val n = t.segments.count { it.start <= x && x < it.end }
+        if (n >= 1) speech++
+        if (n >= 2) overlap++
+        x += step
     }
-    return acc
+    return if (speech == 0) Double.NaN else overlap.toDouble() / speech
 }

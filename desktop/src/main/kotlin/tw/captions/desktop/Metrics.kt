@@ -12,7 +12,7 @@ import java.nio.ByteOrder
  */
 object OpenCcTaiwan : ChineseScriptConverter {
     // opencc4j's Taiwan table still uses a few forms that are uncommon in Taiwan.
-    private val taiwanForms = mapOf('裏' to '裡', '着' to '著', '麪' to '麵')
+    private val taiwanForms = mapOf('裏' to '裡', '着' to '著', '麪' to '麵', '爲' to '為', '綫' to '線', '衆' to '眾')
 
     override fun toTraditional(text: String): String {
         if (text.isBlank()) return text
