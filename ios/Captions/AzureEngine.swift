@@ -92,12 +92,26 @@ final class AzureEngine: CaptionEngine {
         let stream = self.stream
         lock.unlock()
         guard let stream, !samples.isEmpty else { return }
+        countSent(samples.count, flush: false)
         var pcm = [Int16](repeating: 0, count: samples.count)
         for i in 0..<samples.count { pcm[i] = Int16(max(-1, min(1, samples[i])) * 32767) }
         stream.write(pcm.withUnsafeBufferPointer { Data(buffer: $0) })
         var copy = samples
         let level = copy.withUnsafeMutableBufferPointer { IosBridgeKt.levelOfSamples(src: $0.baseAddress!, count: Int32($0.count)) }
         onEvents([IosBridgeKt.levelEvent(level: level)])
+    }
+
+    /// Audio sent to Azure, in samples, not yet added to the usage log (Azure bills by audio time).
+    private var unloggedSamples = 0
+
+    private func countSent(_ samples: Int, flush: Bool) {
+        lock.lock()
+        unloggedSamples += samples
+        let seconds = Double(unloggedSamples) / 16_000
+        let log = flush || seconds >= 10
+        if log { unloggedSamples = 0 }
+        lock.unlock()
+        if log { UsageLog.shared.addAzure(seconds: seconds) }
     }
 
     func finish(onEvents: @escaping ([TranscriptEvent]) -> Void) {
@@ -107,6 +121,7 @@ final class AzureEngine: CaptionEngine {
         self.stream = nil
         self.transcriber = nil
         lock.unlock()
+        countSent(0, flush: true)
         stream?.close()
         DispatchQueue.global(qos: .userInitiated).async {
             try? transcriber?.stopTranscribingAsync { _, _ in }

@@ -25,6 +25,7 @@ struct CaptionView: View {
     }
 
     @State private var showPicker = false
+    @AppStorage(Proofreader.enabledKey) private var proofreadOn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -145,6 +146,9 @@ struct CaptionView: View {
             }
             if let hint = model.hint {
                 Text(hint).font(.system(size: 18)).foregroundColor(stableColor)
+            }
+            if proofreadOn, let notice = model.proofreadNotice {
+                Text(notice).font(.system(size: 16)).foregroundColor(stableColor.opacity(0.8))
             }
             if let error = model.error {
                 Text(error).font(.system(size: 18)).foregroundColor(errorColor)

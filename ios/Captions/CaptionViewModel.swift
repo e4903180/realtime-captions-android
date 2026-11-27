@@ -21,6 +21,8 @@ final class CaptionViewModel: ObservableObject {
     @Published private(set) var level: Float = 0
     @Published private(set) var hint: String?
     @Published private(set) var error: String?
+    /// A passing note about AI proof-reading (shown in yellow, only while it is switched on).
+    @Published private(set) var proofreadNotice: String?
     @Published private(set) var running = false
     @Published private(set) var preparing = false
     @Published var fontSize: Double = UserDefaults.standard.object(forKey: "fontSize") as? Double ?? 34 {
@@ -87,7 +89,8 @@ final class CaptionViewModel: ObservableObject {
             }
             finalSeqs.removeAll()
             pendingRevisions.removeAll()
-            proofreadPaused = false
+            pausedForKey = nil
+            proofreadNotice = nil
             finalsSeen = 0
             try engine.begin(onEvents: Self.eventHandler(model: self))
             try audio.start(onSamples: Self.audioHandler(engine: engine, model: self))
@@ -156,26 +159,49 @@ final class CaptionViewModel: ObservableObject {
 
     /// Text of each line when it was last proof-read (or sent for it), by line id.
     private var reviewed: [Int64: String] = [:]
-    private var proofreadTask: Task<Void, Never>?
+    /// The short wait before a round; cancelling it never cancels a request already sent.
+    private var proofreadTimer: Task<Void, Never>?
     private var proofreading = false
-    /// Set after a failed request (wrong key, no network…); cleared when listening starts again.
-    private var proofreadPaused = false
+    /// The key that failed for good (wrong key, no credit…): proof-reading waits for another key.
+    private var pausedForKey: String?
+    /// After a failure that may pass (timeout, network, busy): no request before this time.
+    private var retryAfter: Date?
+    private var failuresInARow = 0
+    private var noticeTimer: Task<Void, Never>?
 
     /// Waits for a short pause in the conversation, then proof-reads the lines not yet checked.
     private func scheduleProofreading() {
-        guard Proofreader.isActive, !proofreadPaused else { return }
-        proofreadTask?.cancel()
+        guard Proofreader.isActive, !proofreading else { return }
+        if let paused = pausedForKey {
+            guard KeyVault.get(KeyVault.anthropicKey) != paused else { return }
+            pausedForKey = nil   // a new key was saved: try again
+            proofreadNotice = nil
+        }
+        proofreadTimer?.cancel()
         let unchecked = lines.filter { reviewed[$0.id] != $0.text }.count
-        let delay: UInt64 = unchecked >= Int(Proofreading.shared.MAX_LINES) ? 0 : 2_000_000_000
-        proofreadTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: delay)
+        var delay: TimeInterval = unchecked >= Int(Proofreading.shared.MAX_LINES) ? 0 : 2
+        if let retryAfter { delay = max(delay, retryAfter.timeIntervalSinceNow) }
+        proofreadTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await self?.proofreadNow()
+            // Its own task, so a later schedule (which cancels the timer) cannot cancel the request.
+            Task { await self?.proofreadNow() }
+        }
+    }
+
+    private func showProofreadNotice(_ text: String, sticky: Bool) {
+        proofreadNotice = text
+        noticeTimer?.cancel()
+        guard !sticky else { return }
+        noticeTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.proofreadNotice = nil
         }
     }
 
     private func proofreadNow() async {
-        guard !proofreading, let key = KeyVault.get(KeyVault.anthropicKey) else { return }
+        guard Proofreader.isActive, !proofreading, let key = KeyVault.get(KeyVault.anthropicKey), key != pausedForKey else { return }
         // The last line may still grow while someone is talking; leave it for the next round.
         let candidates = lines.enumerated().filter { i, l in
             reviewed[l.id] != l.text && !(i == lines.count - 1 && (continuesLastLine || running && !(stableText + tentativeText).isEmpty))
@@ -184,20 +210,34 @@ final class CaptionViewModel: ObservableObject {
         guard let firstIndex = batch.first?.offset else { return }
         let context = lines[max(0, firstIndex - Int(Proofreading.shared.CONTEXT_LINES))..<firstIndex].map { "\($0.speaker ?? "?")：\($0.text)" }
         let sent = batch.map { (id: $0.element.id, speaker: $0.element.speaker, text: $0.element.text) }
+        let before = Dictionary(sent.map { ($0.id, reviewed[$0.id]) }, uniquingKeysWith: { a, _ in a })
         for l in sent { reviewed[l.id] = l.text }
         proofreading = true
-        defer { proofreading = false }
         do {
             let fixed = try await Proofreader.proofread(key: key, model: Proofreader.model, context: Array(context), lines: sent)
+            proofreading = false
+            failuresInARow = 0
+            retryAfter = nil
             for l in sent {
                 guard let text = fixed[l.id], lines.first(where: { $0.id == l.id })?.text == l.text else { continue }
                 apply(assembler.replaceLineText(lineId: l.id, text: text))
                 reviewed[l.id] = text
             }
         } catch {
-            self.error = "AI 校稿暫停：\(error.localizedDescription)"
-            proofreadPaused = true
-            return
+            proofreading = false
+            // Not checked after all: send these lines again next round.
+            for l in sent where reviewed[l.id] == l.text { reviewed[l.id] = before[l.id] ?? nil }
+            if error is CancellationError { return }
+            let reason = error.localizedDescription
+            if let f = error as? Proofreader.Failure, f.permanent {
+                pausedForKey = key
+                showProofreadNotice("AI 校稿暫停：\(reason)", sticky: true)
+                return
+            }
+            failuresInARow += 1
+            let wait = min(60, 5 * pow(2, Double(failuresInARow - 1)))
+            retryAfter = Date().addingTimeInterval(wait)
+            if failuresInARow >= 2 { showProofreadNotice("AI 校稿\(reason)，\(Int(wait)) 秒後重試", sticky: false) }
         }
         if lines.contains(where: { reviewed[$0.id] != $0.text }) { scheduleProofreading() }
     }

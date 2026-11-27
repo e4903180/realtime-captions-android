@@ -34,6 +34,9 @@ enum Proofreader {
 
     struct Failure: LocalizedError {
         let errorDescription: String?
+        /// Retrying will not help (wrong key, no permission, no credit): proof-reading pauses
+        /// until the key changes. Anything else (timeout, network, busy) is retried.
+        var permanent = false
     }
 
     private static let api = URL(string: "https://api.anthropic.com/v1/messages")!
@@ -53,7 +56,7 @@ enum Proofreader {
             "output_config": ["effort": "low", "format": ["type": "json_schema", "schema": schema]],
             "messages": [["role": "user", "content": user]],
         ]
-        var request = URLRequest(url: api, timeoutInterval: 30)
+        var request = URLRequest(url: api, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue(key, forHTTPHeaderField: "x-api-key")
@@ -65,10 +68,28 @@ enum Proofreader {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let e as URLError {
+            if e.code == .cancelled { throw CancellationError() }
+            UsageLog.shared.addClaudeFailure(model: model.rawValue)
+            throw Failure(errorDescription: e.code == .timedOut ? "等太久沒回應" : "連不上 Anthropic")
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw Failure(errorDescription: problem(status: status, data: data)) }
+        guard status == 200 else {
+            UsageLog.shared.addClaudeFailure(model: model.rawValue)
+            throw Failure(errorDescription: problem(status: status, data: data), permanent: isPermanent(status: status, data: data))
+        }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        if let usage = json["usage"] as? [String: Any] {
+            UsageLog.shared.addClaude(
+                model: json["model"] as? String ?? model.rawValue,
+                inputTokens: (usage["input_tokens"] as? NSNumber)?.intValue ?? 0,
+                outputTokens: (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
+            )
+        }
         // A declined request has no usable answer: keep the captions as they are.
         if json["stop_reason"] as? String == "refusal" { return [:] }
         let text = (json["content"] as? [[String: Any]] ?? [])
@@ -101,11 +122,20 @@ enum Proofreader {
         }
     }
 
+    private static func isPermanent(status: Int, data: Data) -> Bool {
+        switch status {
+        case 401, 402, 403: return true
+        case 400: return String(data: data, encoding: .utf8)?.contains("credit") == true
+        default: return false
+        }
+    }
+
     private static func problem(status: Int, data: Data) -> String {
         switch status {
         case 401: return "金鑰不對，請重新貼上"
         case 403: return "這組金鑰沒有權限使用這個模型"
-        case 429: return "用量太多，請稍後再試"
+        case 429: return "用量太多，稍後再試"
+        case 500...599: return "Anthropic 服務忙碌"
         case 402: return "帳號額度不足，請到 Anthropic 主控台儲值"
         case 400 where String(data: data, encoding: .utf8)?.contains("credit") == true: return "帳號額度不足，請到 Anthropic 主控台儲值"
         default: return "校稿服務錯誤（\(status)）"

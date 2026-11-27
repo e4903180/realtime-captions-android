@@ -88,6 +88,7 @@ struct EnginePickerView: View {
                 Section("雲端") {
                     rows(EngineInfo.all.filter { !$0.offline })
                     Button("雲端服務設定（金鑰）") { model.showCloudSettings = true }
+                    NavigationLink("雲端用量與費用") { UsageView() }
                 }
                 Section {
                     Picker("說話人數", selection: $model.speakerCount) {
