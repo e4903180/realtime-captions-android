@@ -60,6 +60,8 @@ dependencies {
     implementation("com.github.houbb:opencc4j:1.14.0")
     // Azure AI Speech (cloud engine, user's own key).
     implementation("com.microsoft.cognitiveservices.speech:client-sdk:1.49.1")
+    // WebSocket to the user's own caption server.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")

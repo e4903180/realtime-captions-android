@@ -39,6 +39,11 @@ object EngineCatalog {
             offline = false, paid = true, speakerTags = true, needsKey = true,
         ),
         EngineInfo(
+            ServerSpeechEngine.ID, "自架伺服器（Breeze）",
+            "用你自己電腦的顯示卡跑台灣調校的 Breeze 模型，課程、演講最準（錯字率約 5%）。需要電腦開著伺服器，不分說話者。",
+            offline = false, needsKey = true,
+        ),
+        EngineInfo(
             "android-online", "手機內建（連線）",
             "使用手機內建的 Google 語音辨識，需要網路，不分說話者。",
             offline = false,

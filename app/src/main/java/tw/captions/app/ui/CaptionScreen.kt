@@ -46,6 +46,7 @@ private val FinalText = Color.White
 private val StableText = Color(0xFFFFF59D)    // light yellow: current sentence, settled
 private val TentativeText = Color(0xFF9E9E9E) // gray: may still change
 private val ErrorText = Color(0xFFFF8A80)
+private val BackgroundText = Color(0xFF757575)
 
 @Composable
 fun CaptionScreen(
@@ -55,6 +56,7 @@ fun CaptionScreen(
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleBackground: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
@@ -108,7 +110,7 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onClear, onFontSize)
+            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onToggleBackground, onClear, onFontSize)
         }
     }
 }
@@ -147,19 +149,26 @@ private fun Captions(ui: UiState, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         itemsIndexed(captions.lines) { _, line ->
-            Text(
-                buildAnnotatedString {
-                    line.speaker?.let { speakerPrefix(it) }
-                    append(line.text)
-                },
-                color = FinalText,
-                fontSize = fontSize,
-                lineHeight = lineHeight,
-            )
+            if (line.background) {
+                // Much quieter than the conversation (TV, other tables): small and gray.
+                Text("背景：${line.text}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp)
+            } else {
+                Text(
+                    buildAnnotatedString {
+                        line.speaker?.let { speakerPrefix(it) }
+                        append(line.text)
+                    },
+                    color = FinalText,
+                    fontSize = fontSize,
+                    lineHeight = lineHeight,
+                )
+            }
         }
         if (hasCurrent) {
             item {
-                Text(
+                if (captions.currentBackground) {
+                    Text("背景：${captions.stableText}${captions.tentativeText}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp)
+                } else Text(
                     buildAnnotatedString {
                         captions.currentSpeaker?.let { speakerPrefix(it) }
                         withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
@@ -211,6 +220,7 @@ private fun Controls(
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleBackground: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
 ) {
@@ -226,6 +236,9 @@ private fun Controls(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
+            TextButton(onClick = onToggleBackground) {
+                Text(if (ui.hideBackground) "背景聲：隱藏" else "背景聲：淡化", fontSize = 18.sp, color = Color.White)
+            }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }

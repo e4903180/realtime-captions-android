@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                 onStop = viewModel::stop,
                 onOpenEngines = { showEngines = true },
                 onOpenSettings = { showSettings = true },
+                onToggleBackground = viewModel::toggleBackground,
                 onClear = viewModel::clear,
                 onFontSize = viewModel::changeFontSize,
             )
@@ -79,6 +80,9 @@ class MainActivity : ComponentActivity() {
                     onSaveAzure = viewModel::saveAzure,
                     onTestAzure = viewModel::testAzure,
                     onRemoveAzure = viewModel::removeAzure,
+                    onSaveServer = viewModel::saveServer,
+                    onTestServer = viewModel::testServer,
+                    onRemoveServer = viewModel::removeServer,
                 )
             }
         }

@@ -80,7 +80,11 @@ fun EnginePicker(
                     onDownload = { onDownload(info.id) },
                     onCancel = onCancelDownload,
                     onRemove = { confirmRemove = info },
-                    keyHint = if (info.needsKey) ui.azureKeyHint else null,
+                    keyHint = when (info.id) {
+                        tw.captions.app.engine.AzureSpeechEngine.ID -> ui.azureKeyHint
+                        tw.captions.app.engine.ServerSpeechEngine.ID -> ui.serverTokenHint
+                        else -> null
+                    },
                     onOpenSettings = onOpenSettings,
                 )
             }

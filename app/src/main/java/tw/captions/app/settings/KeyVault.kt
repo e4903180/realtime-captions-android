@@ -61,5 +61,7 @@ class KeyVault(context: Context) {
         private const val ALIAS = "captions-api-keys"
         const val AZURE_KEY = "azure_key"
         const val AZURE_REGION = "azure_region"
+        const val SERVER_URL = "server_url"
+        const val SERVER_TOKEN = "server_token"
     }
 }

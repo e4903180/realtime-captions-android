@@ -79,6 +79,11 @@ data class PipelineConfig(
     val shortPauseSec: Float = 0.15f,
     /** Emit [TranscriptEvent.NoSpeechDetected] after this much silence in a row. */
     val noSpeechHintSec: Float = 6f,
+    /**
+     * Lines this much quieter than the conversation are marked as background (TV, other people
+     * nearby). Null turns the focus filter off. See [FocusTracker].
+     */
+    val focusMarginDb: Float? = 8f,
 )
 
 /**
@@ -102,6 +107,7 @@ class StreamingPipeline(
     private var quietSec = 0f
     private var unchangedSec = 0f
     private var lineSec = 0f
+    private val focus = config.focusMarginDb?.let { FocusTracker(marginDb = it) }
     private var started = false
 
     /** Seconds of audio consumed so far. */
@@ -109,6 +115,7 @@ class StreamingPipeline(
         private set
 
     fun reset() {
+        focus?.reset()
         enhancer?.reset()
         asr.reset()
         vad?.reset()
@@ -168,7 +175,9 @@ class StreamingPipeline(
             ) {
                 provisional = clusterer.peek(embedder.embed(speech.toArray()))
             }
-            out += TranscriptEvent.Partial(text, provisional)
+            val bg = focus != null && speech.size >= config.sampleRate / 2 &&
+                focus.isBackground(FocusTracker.levelDb(speech.toArray()))
+            out += TranscriptEvent.Partial(text, if (bg) null else provisional, background = bg)
         }
 
         if (text.isNotEmpty()) lineSec += chunkSec
@@ -190,14 +199,16 @@ class StreamingPipeline(
 
     private fun finishUtterance(text: String): TranscriptEvent.Final? {
         val final = if (text.isNotEmpty()) {
+            val samples = speech.toArray()
+            val background = focus != null && samples.isNotEmpty() && focus.observe(FocusTracker.levelDb(samples))
             val speaker = when {
-                embedder == null -> null
+                background || embedder == null -> null
                 speech.size >= config.minSpeakerSec * config.sampleRate ->
-                    clusterer.assign(embedder.embed(speech.toArray()), allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
+                    clusterer.assign(embedder.embed(samples), allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
                 else -> provisional ?: lastSpeaker
             }
             if (speaker != null) lastSpeaker = speaker
-            TranscriptEvent.Final(text, speaker)
+            TranscriptEvent.Final(text, speaker, background)
         } else {
             null
         }

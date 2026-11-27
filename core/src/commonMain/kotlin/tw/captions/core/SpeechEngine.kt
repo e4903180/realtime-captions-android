@@ -41,10 +41,13 @@ sealed interface TranscriptEvent {
      * In-progress hypothesis for the current utterance; may still change.
      * [speaker] is null when the engine cannot tell speakers apart.
      */
-    data class Partial(val text: String, val speaker: SpeakerId? = null) : TranscriptEvent
+    data class Partial(val text: String, val speaker: SpeakerId? = null, val background: Boolean = false) : TranscriptEvent
 
-    /** Finished utterance; will not change any more. */
-    data class Final(val text: String, val speaker: SpeakerId? = null) : TranscriptEvent
+    /**
+     * Finished utterance; will not change any more. [background] marks speech much quieter than
+     * the conversation (a TV, other tables): see [FocusTracker].
+     */
+    data class Final(val text: String, val speaker: SpeakerId? = null, val background: Boolean = false) : TranscriptEvent
 
     data class Error(val message: String, val recoverable: Boolean) : TranscriptEvent
 

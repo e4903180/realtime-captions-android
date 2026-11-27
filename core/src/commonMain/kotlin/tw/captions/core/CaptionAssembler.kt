@@ -1,12 +1,15 @@
 package tw.captions.core
 
 /** One finished caption line. */
-data class CaptionLine(val text: String, val speaker: SpeakerId? = null)
+/** [background]: speech much quieter than the conversation (TV, other tables), shown dimmed. */
+data class CaptionLine(val text: String, val speaker: SpeakerId? = null, val background: Boolean = false)
 
 /** What the caption screen shows. */
 data class CaptionState(
     /** Finished lines, oldest first. */
     val lines: List<CaptionLine> = emptyList(),
+    /** The current utterance sounds like background speech (TV, other tables). */
+    val currentBackground: Boolean = false,
     /** Speaker of the current utterance, if known. */
     val currentSpeaker: SpeakerId? = null,
     /** Part of the current utterance that has stayed the same across recent partial results. */
@@ -31,6 +34,8 @@ class CaptionAssembler(
     private val processor: TextProcessor = TextProcessor.default(),
     private val maxLines: Int = 200,
     private val silentRoundsBeforeHint: Int = 3,
+    /** Drop background lines (TV, other tables) instead of showing them dimmed. */
+    var hideBackground: Boolean = false,
 ) {
     companion object {
         const val NO_SPEECH_HINT = "沒有聽到說話聲，請確認麥克風有開，或靠近一點說話"
@@ -59,7 +64,7 @@ class CaptionAssembler(
                 state.copy(hint = if (silentRounds >= silentRoundsBeforeHint) NO_SPEECH_HINT else state.hint)
             }
 
-            is TranscriptEvent.Partial -> {
+            is TranscriptEvent.Partial -> if (event.background && hideBackground) state else {
                 silentRounds = 0
                 val text = processor.process(event.text)
                 val stableLen = if (lastPartial.isEmpty()) 0 else commonPrefixLength(lastPartial, text)
@@ -69,6 +74,7 @@ class CaptionAssembler(
                     currentSpeaker = event.speaker,
                     stableText = text.substring(0, stableLen),
                     tentativeText = text.substring(stableLen),
+                    currentBackground = event.background,
                     error = null,
                 )
             }
@@ -77,12 +83,12 @@ class CaptionAssembler(
                 silentRounds = 0
                 val text = processor.process(event.text)
                 lastPartial = ""
-                val lines = if (text.isBlank()) {
+                val lines = if (text.isBlank() || (event.background && hideBackground)) {
                     state.lines
                 } else {
-                    (state.lines + CaptionLine(text, event.speaker)).takeLast(maxLines)
+                    (state.lines + CaptionLine(text, event.speaker, event.background)).takeLast(maxLines)
                 }
-                state.copy(hint = null, lines = lines, currentSpeaker = null, stableText = "", tentativeText = "", error = null)
+                state.copy(hint = null, lines = lines, currentSpeaker = null, currentBackground = false, stableText = "", tentativeText = "", error = null)
             }
 
             is TranscriptEvent.Error -> state.copy(

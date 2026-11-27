@@ -15,6 +15,7 @@ import android.util.Log
 import java.io.File
 import tw.captions.app.engine.AndroidSpeechEngine
 import tw.captions.app.engine.AzureSpeechEngine
+import tw.captions.app.engine.ServerSpeechEngine
 import tw.captions.app.settings.KeyVault
 import tw.captions.app.engine.EngineCatalog
 import tw.captions.app.engine.MicInput
@@ -32,6 +33,8 @@ data class UiState(
     val running: Boolean = false,
     val engineId: String = EngineCatalog.DEFAULT_ID,
     val fontSizeSp: Int = 36,
+    /** Hide background speech (TV, other tables) instead of showing it small and gray. */
+    val hideBackground: Boolean = false,
     /** 0..1 while the offline models are downloading, otherwise null. */
     val modelDownload: Float? = null,
     /** Which engine the running download is for. */
@@ -45,6 +48,10 @@ data class UiState(
     val azureRegion: String = "eastasia",
     val cloudTesting: Boolean = false,
     val cloudTestMessage: String? = null,
+    /** Home caption server: address and a hint of its token. */
+    val serverUrl: String = "",
+    val serverTokenHint: String? = null,
+    val serverTestMessage: String? = null,
     /** Seconds the current paid cloud session has been running, shown so users know what they spend. */
     val cloudSeconds: Int? = null,
     /** Debug builds: wav file played instead of the microphone. */
@@ -65,6 +72,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
+            openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
+        ),
+        ServerSpeechEngine(
+            endpoint = { vault.getPlain(KeyVault.SERVER_URL)?.let { u -> vault.get(KeyVault.SERVER_TOKEN)?.let { u to it } } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
         ),
     )
@@ -91,12 +102,49 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
     init {
+        val hide = prefs.getBoolean("hide_background", false)
+        assembler.hideBackground = hide
+        _ui.update { it.copy(hideBackground = hide) }
         refreshInstalled()
         refreshKeys()
     }
 
     private fun refreshKeys() {
-        _ui.update { it.copy(azureKeyHint = vault.hint(KeyVault.AZURE_KEY), azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") }
+        _ui.update {
+            it.copy(
+                azureKeyHint = vault.hint(KeyVault.AZURE_KEY),
+                azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia",
+                serverUrl = vault.getPlain(KeyVault.SERVER_URL) ?: "",
+                serverTokenHint = vault.hint(KeyVault.SERVER_TOKEN),
+            )
+        }
+    }
+
+    fun saveServer(url: String, token: String) {
+        vault.putPlain(KeyVault.SERVER_URL, url.trim())
+        if (token.isNotEmpty()) vault.put(KeyVault.SERVER_TOKEN, token.trim())
+        refreshKeys()
+        testServer()
+    }
+
+    fun removeServer() {
+        if (_ui.value.engineId == ServerSpeechEngine.ID) stop()
+        vault.remove(KeyVault.SERVER_TOKEN)
+        vault.putPlain(KeyVault.SERVER_URL, "")
+        _ui.update { it.copy(serverTestMessage = null) }
+        refreshKeys()
+    }
+
+    fun testServer() {
+        val url = vault.getPlain(KeyVault.SERVER_URL)?.takeIf { it.isNotBlank() } ?: return
+        val token = vault.get(KeyVault.SERVER_TOKEN) ?: return
+        _ui.update { it.copy(serverTestMessage = "測試中…") }
+        viewModelScope.launch(Dispatchers.IO) {
+            val r = ServerSpeechEngine.test(url, token)
+            _ui.update {
+                it.copy(serverTestMessage = r.fold({ "可以使用：已連上伺服器" }, { e -> "不能使用：${e.message ?: "連不上伺服器"}" }))
+            }
+        }
     }
 
     fun saveAzure(key: String, region: String) {
@@ -129,12 +177,14 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Debug builds: import an Azure key from a file (AZURE_SPEECH_KEY=..., AZURE_SPEECH_REGION=...) for emulator tests. */
+    /** Debug builds: import keys from a file (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, CAPTIONS_SERVER_URL, CAPTIONS_TOKEN) for emulator tests. */
     fun importAzureEnv(file: File) {
         if (!BuildConfig.DEBUG || !file.isFile) return
         val env = file.readLines().mapNotNull { l -> l.split("=", limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }.toMap()
         env["AZURE_SPEECH_KEY"]?.let { vault.put(KeyVault.AZURE_KEY, it) }
         env["AZURE_SPEECH_REGION"]?.let { vault.putPlain(KeyVault.AZURE_REGION, it) }
+        env["CAPTIONS_SERVER_URL"]?.let { vault.putPlain(KeyVault.SERVER_URL, it) }
+        env["CAPTIONS_TOKEN"]?.let { vault.put(KeyVault.SERVER_TOKEN, it) }
         file.delete()
         refreshKeys()
     }
@@ -260,6 +310,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun clear() {
         assembler.reset()
         _ui.update { it.copy(captions = CaptionState(isListening = it.running)) }
+    }
+
+    fun toggleBackground() {
+        val hide = !_ui.value.hideBackground
+        assembler.hideBackground = hide
+        prefs.edit().putBoolean("hide_background", hide).apply()
+        _ui.update { it.copy(hideBackground = hide) }
     }
 
     fun changeFontSize(deltaSp: Int) {

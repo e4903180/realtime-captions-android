@@ -48,6 +48,9 @@ fun CloudSettings(
     onSaveAzure: (key: String, region: String) -> Unit,
     onTestAzure: () -> Unit,
     onRemoveAzure: () -> Unit,
+    onSaveServer: (url: String, token: String) -> Unit,
+    onTestServer: () -> Unit,
+    onRemoveServer: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -68,8 +71,9 @@ fun CloudSettings(
                 color = Sub, fontSize = 15.sp,
             )
             AzureCard(ui, onSaveAzure, onTestAzure, onRemoveAzure)
+            ServerCard(ui, onSaveServer, onTestServer, onRemoveServer)
             Text(
-                "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供；自架伺服器（你的電腦）會在之後加入。",
+                "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供。",
                 color = Sub, fontSize = 14.sp,
             )
         }
@@ -141,3 +145,45 @@ private fun AzureCard(
 }
 
 private fun regionName(id: String) = AzureSpeechEngine.REGIONS.firstOrNull { it.first == id }?.second ?: id
+
+@Composable
+private fun ServerCard(
+    ui: UiState,
+    onSave: (String, String) -> Unit,
+    onTest: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var url by remember(ui.serverUrl) { mutableStateOf(ui.serverUrl) }
+    var token by remember { mutableStateOf("") }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("自架伺服器（你的電腦）", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("在有顯示卡的電腦上執行專案裡的 server/server.py，手機連過去辨識。課程、演講最準，不用付雲端費用。", color = Sub, fontSize = 15.sp)
+        OutlinedTextField(
+            value = url,
+            onValueChange = { url = it.trim() },
+            label = { Text("伺服器網址，例如 ws://192.168.1.20:8765") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = token,
+            onValueChange = { token = it.trim() },
+            label = { Text(if (ui.serverTokenHint != null) "換一組權杖（目前 ${ui.serverTokenHint}）" else "權杖（伺服器的 CAPTIONS_TOKEN）") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onSave(url, token); token = "" }, enabled = url.startsWith("ws") && (token.isNotEmpty() || ui.serverTokenHint != null)) { Text("儲存") }
+            OutlinedButton(onClick = onTest, enabled = ui.serverTokenHint != null && ui.serverUrl.isNotBlank()) { Text("測試連線", color = Color.White) }
+            if (ui.serverTokenHint != null) TextButton(onClick = onRemove) { Text("刪除", color = Color(0xFFFF8A80)) }
+        }
+        ui.serverTestMessage?.let { Text(it, color = if (it.startsWith("可以使用")) Accent else Color(0xFFFF8A80), fontSize = 15.sp) }
+    }
+}
