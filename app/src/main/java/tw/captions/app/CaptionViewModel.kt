@@ -33,6 +33,8 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** 看電視: show everything (TV speech included) in a few large lines; filters pause (ADR-032). */
+    val tvMode: Boolean = false,
     /** Background-speech filter: off (default), dim, or hide. */
     val backgroundMode: tw.captions.core.BackgroundMode = tw.captions.core.BackgroundMode.OFF,
     /** 0..1 while the offline models are downloading, otherwise null. */
@@ -106,8 +108,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val mode = runCatching { tw.captions.core.BackgroundMode.valueOf(prefs.getString("background_mode", "OFF")!!) }.getOrDefault(tw.captions.core.BackgroundMode.OFF)
-        assembler.backgroundMode = mode
-        _ui.update { it.copy(backgroundMode = mode) }
+        val tv = prefs.getBoolean("tv_mode", false)
+        assembler.backgroundMode = if (tv) tw.captions.core.BackgroundMode.OFF else mode
+        _ui.update { it.copy(backgroundMode = mode, tvMode = tv) }
         refreshInstalled()
         refreshKeys()
         loadPeople()
@@ -204,7 +207,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         savePeople()
         _ui.update { it.copy(captions = assembler.nameLine(index, name.trim())) }
         // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
-        if (first && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
+        if (first && !_ui.value.tvMode && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
     }
 
     fun forgetPerson(id: Int) {
@@ -213,7 +216,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun setBackgroundMode(mode: tw.captions.core.BackgroundMode) {
-        assembler.backgroundMode = mode
+        if (!_ui.value.tvMode) assembler.backgroundMode = mode
         prefs.edit().putString("background_mode", mode.name).apply()
         _ui.update { it.copy(backgroundMode = mode) }
     }
@@ -404,9 +407,20 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleBackground() {
         val modes = tw.captions.core.BackgroundMode.entries
         val mode = modes[(modes.indexOf(_ui.value.backgroundMode) + 1) % modes.size]
-        assembler.backgroundMode = mode
+        if (!_ui.value.tvMode) assembler.backgroundMode = mode
         prefs.edit().putString("background_mode", mode.name).apply()
         _ui.update { it.copy(backgroundMode = mode) }
+    }
+
+    /**
+     * 看電視 on: every voice is shown normally (the background filter and the dimming of unknown
+     * voices pause). Off: back to the user's own filter setting. Remembered across launches.
+     */
+    fun toggleTvMode() {
+        val on = !_ui.value.tvMode
+        assembler.backgroundMode = if (on) tw.captions.core.BackgroundMode.OFF else _ui.value.backgroundMode
+        prefs.edit().putBoolean("tv_mode", on).apply()
+        _ui.update { it.copy(tvMode = on) }
     }
 
     fun changeFontSize(deltaSp: Int) {

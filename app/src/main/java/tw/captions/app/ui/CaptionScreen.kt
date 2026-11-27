@@ -64,6 +64,7 @@ fun CaptionScreen(
     onFontSize: (Int) -> Unit,
     onNameLine: (Int, String) -> Unit = { _, _ -> },
     onOpenPeople: () -> Unit = {},
+    onToggleTv: () -> Unit = {},
 ) {
     MaterialTheme(colorScheme = darkColorScheme(background = Background)) {
         Column(
@@ -72,7 +73,21 @@ fun CaptionScreen(
                 .background(Background)
                 .safeDrawingPadding(),
         ) {
-            Captions(ui, Modifier.weight(1f), onNameLine)
+            Box(Modifier.weight(1f)) {
+                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize(), onNameLine)
+                // 看電視 toggle, top right (same place as on iPhone, ADR-032).
+                FilterChip(
+                    selected = ui.tvMode,
+                    onClick = onToggleTv,
+                    label = { Text("看電視", fontSize = 16.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        labelColor = Color.White,
+                        selectedContainerColor = Color(0xFF2E7D32),
+                        selectedLabelColor = Color.White,
+                    ),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                )
+            }
             if (ui.running) LevelMeter(ui.captions.audioLevel)
             ui.modelDownload?.let { p ->
                 Text(
@@ -193,6 +208,48 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
     }
 }
 
+/**
+ * 看電視: only the newest two or three lines, 1.25× larger, centred near the bottom, older line
+ * faded, no speaker labels and no scrolling (ADR-032).
+ */
+@Composable
+private fun TvCaptions(ui: UiState, modifier: Modifier) {
+    val captions = ui.captions
+    val current = captions.stableText + captions.tentativeText
+    val recent = captions.lines.map { it.text }.let { if (current.isEmpty()) it.takeLast(3) else it.takeLast(2) }
+    val size = (ui.fontSizeSp * 1.25f)
+    Column(
+        modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (recent.isEmpty() && current.isEmpty()) {
+            Text(if (ui.running) "正在聽…" else "按下「開始」顯示字幕", color = TentativeText, fontSize = 24.sp)
+        }
+        recent.forEachIndexed { i, text ->
+            val newest = i == recent.lastIndex && current.isEmpty()
+            Text(
+                text,
+                color = if (newest) FinalText else FinalText.copy(alpha = 0.5f),
+                fontSize = size.sp,
+                lineHeight = (size * 1.3f).sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        if (current.isNotEmpty()) {
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
+                    withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
+                },
+                fontSize = size.sp,
+                lineHeight = (size * 1.3f).sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
 /** Thin bar showing the microphone level, so the reader can see that sound is coming in. */
 @Composable
 private fun LevelMeter(level: Float) {
@@ -249,7 +306,7 @@ private fun Controls(
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Color.White) }
-            TextButton(onClick = onToggleBackground) {
+            if (!ui.tvMode) TextButton(onClick = onToggleBackground) {
                 Text(
                     when (ui.backgroundMode) {
                         tw.captions.core.BackgroundMode.OFF -> "背景過濾：關"

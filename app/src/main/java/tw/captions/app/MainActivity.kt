@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
                 onOpenEngines = { showEngines = true },
                 onOpenSettings = { showSettings = true },
                 onToggleBackground = viewModel::toggleBackground,
+                onToggleTv = viewModel::toggleTvMode,
                 onNameLine = viewModel::nameLine,
                 onOpenPeople = { showPeople = true },
                 onClear = viewModel::clear,
