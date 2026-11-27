@@ -85,6 +85,14 @@ class AzureSpeechEngine(
         val stream = PushAudioInputStream.create(AudioStreamFormat.getWaveFormatPCM(SAMPLE_RATE.toLong(), 16.toShort(), 1.toShort()))
         val transcriber = ConversationTranscriber(speechConfig, AudioConfig.fromStreamInput(stream))
 
+        // The user's own words (names, places, terms): Azure prefers them when the sound fits.
+        if (config.hotwords.isNotEmpty()) {
+            runCatching {
+                val phrases = com.microsoft.cognitiveservices.speech.PhraseListGrammar.fromRecognizer(transcriber)
+                config.hotwords.forEach { phrases.addPhrase(it) }
+            }.onFailure { Log.w(TAG, "phrase list not applied", it) }
+        }
+
         val withSpeakers = speakersOn()
         fun speaker(id: String?): SpeakerId? = if (!withSpeakers) null else id?.substringAfter("Guest-", "")?.toIntOrNull()?.let { SpeakerId(it - 1) }
 
