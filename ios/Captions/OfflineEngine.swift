@@ -12,13 +12,44 @@ final class OfflineEngine {
     private let pipeline: StreamingPipeline
     private var pending: [Float] = []
 
-    init(models: ModelFiles, speakers: Bool = true) {
+    /// Second pass (ADR-025): runs on its own queue so live captions never wait for it.
+    private let secondPass: SherpaSecondPass?
+    private let secondQueue = DispatchQueue(label: "tw.captions.second-pass", qos: .utility)
+    private var finalCount = 0
+    /// Called with (n, text): the n-th finished line since `begin` (from 0) should read `text`.
+    var onRevision: ((Int, String) -> Void)?
+
+    init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil) {
+        secondPass = secondPassDirectory.map { SherpaSecondPass(directory: $0) }
         pipeline = IosBridgeKt.createOfflinePipeline(
             asr: SherpaAsr(models: models),
             vad: SherpaVad(models: models),
             embedder: speakers ? SherpaEmbedder(models: models) : nil,
-            speakerThreshold: Self.speakerThreshold
+            speakerThreshold: Self.speakerThreshold,
+            keepAudio: secondPass != nil
         )
+    }
+
+    var hasSecondPass: Bool { secondPass != nil }
+
+    /// Starts counting finished lines from 0 again.
+    func restartCount() { queue.async { [self] in finalCount = 0 } }
+
+    /// After a Final, hands its audio to the second pass. Runs on `queue`.
+    private func reviseFinals(in events: [TranscriptEvent]) {
+        for e in events {
+            guard let final = e as? TranscriptEventFinal else { continue }
+            let n = finalCount
+            finalCount += 1
+            guard let secondPass, let audio = pipeline.takeUtteranceAudio() else { continue }
+            let samples = FloatArrays.toSwift(audio)
+            let live = final.text
+            let deliver = onRevision
+            secondQueue.async {
+                let again = secondPass.recognize(samples)
+                if let chosen = SecondPass.shared.choose(live: live, second: again) { deliver?(n, chosen) }
+            }
+        }
     }
 
     /// Queues audio for decoding; call from any thread.
@@ -30,6 +61,7 @@ final class OfflineEngine {
                 pending.removeFirst(Self.chunkSamples)
                 let events = pipeline.feed(input: FloatArrays.toKotlin(chunk))
                 if !events.isEmpty { onEvents(events) }
+                reviseFinals(in: events)
             }
         }
     }
@@ -44,6 +76,7 @@ final class OfflineEngine {
             }
             events += pipeline.flush()
             onEvents(events)
+            reviseFinals(in: events)
             pipeline.reset()
         }
     }

@@ -5,6 +5,7 @@ import Security
 /// iCloud or backed up). Keys are never logged and only sent to the service they belong to.
 enum KeyVault {
     static let azureKey = "azure_key"
+    static let anthropicKey = "anthropic_key"
     private static let service = "tw.captions.keys"
 
     static func put(_ name: String, _ value: String) {

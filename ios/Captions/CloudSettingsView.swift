@@ -88,6 +88,9 @@ struct EnginePickerView: View {
                     rows(EngineInfo.all.filter { !$0.offline })
                     Button("雲端服務設定（金鑰）") { model.showCloudSettings = true }
                 }
+                Section("文字校正") {
+                    NavigationLink("整句重聽、AI 校稿") { CorrectionSettingsView(store: model.secondPassStore) }
+                }
             }
             .navigationTitle("辨識引擎")
             .navigationBarTitleDisplayMode(.inline)

@@ -35,5 +35,5 @@ protocol CaptionEngine: AnyObject {
 }
 
 extension OfflineEngine: CaptionEngine {
-    func begin(onEvents: @escaping ([TranscriptEvent]) -> Void) throws {}
+    func begin(onEvents: @escaping ([TranscriptEvent]) -> Void) throws { restartCount() }
 }

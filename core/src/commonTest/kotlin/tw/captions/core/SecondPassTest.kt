@@ -109,3 +109,25 @@ class SecondPassTest {
         assertNull(p.takeUtteranceAudio())
     }
 }
+
+class ProofreadingTest {
+    @Test
+    fun acceptsSmallFixesAndPunctuation() {
+        assertTrue(Proofreading.accept("我們明天去看電影把", "我們明天去看電影吧。"))
+        assertTrue(Proofreading.accept("在見", "再見"))
+    }
+
+    @Test
+    fun rejectsRewritesAndEmptyAnswers() {
+        assertEquals(false, Proofreading.accept("我覺得這個方案還不錯可以試試看", "這方案可行"))
+        assertEquals(false, Proofreading.accept("你好", ""))
+        assertEquals(false, Proofreading.accept("你好", "你好"))
+    }
+
+    @Test
+    fun userMessageListsContextThenLines() {
+        val m = Proofreading.userMessage(listOf("A：早安"), listOf(ProofreadLine(7L, "B", "你吃飽了嗎")))
+        assertTrue(m.contains("前文"))
+        assertTrue(m.contains("7｜B｜你吃飽了嗎"))
+    }
+}

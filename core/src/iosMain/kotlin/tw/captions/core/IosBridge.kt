@@ -32,13 +32,22 @@ fun writeFloatArrayToPointer(array: FloatArray, dst: CPointer<FloatVar>) {
 /** Reads one sample; used by tests on the Swift side. */
 fun floatAt(src: CPointer<FloatVar>, index: Int): Float = src[index]
 
-/** The offline pipeline with the same defaults as the Android app (see SherpaOnnxEngine). */
+/**
+ * The offline pipeline. Differences from the Android defaults, from iPhone testing (ADR-024):
+ * a line ends after 0.6 s of silence instead of 0.4 s, and the volume-based background filter is
+ * off (the iPhone has no switch for it, and it left quieter speakers without a speaker label).
+ * With [keepAudio], each line's audio is kept for the second pass (ADR-025).
+ */
 fun createOfflinePipeline(
     asr: StreamingAsr,
     vad: VoiceActivityDetector?,
     embedder: SpeakerEmbedder?,
     speakerThreshold: Float,
-): StreamingPipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold))
+    keepAudio: Boolean,
+): StreamingPipeline = StreamingPipeline(
+    asr, vad, embedder, SpeakerClusterer(speakerThreshold),
+    PipelineConfig(vadEndpointSilenceSec = 0.6f, focusMarginDb = null, keepUtteranceAudioSec = if (keepAudio) 20f else 0f),
+)
 
 /**
  * Caption assembler with the default clean-up steps and the given Chinese converter. One person's

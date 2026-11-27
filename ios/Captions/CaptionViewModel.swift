@@ -4,7 +4,8 @@ import UIKit
 
 /// One finished caption line, ready for SwiftUI.
 struct Line: Identifiable, Equatable {
-    let id: Int
+    /// Stable id from the shared CaptionAssembler (indexes shift when old lines are dropped).
+    let id: Int64
     let text: String
     let speaker: String?
 }
@@ -33,6 +34,7 @@ final class CaptionViewModel: ObservableObject {
     @Published var showCloudSettings = false
 
     let models = ModelStore()
+    lazy var secondPassStore = SecondPassStore(directory: models.files.directory)
     private let assembler = IosBridgeKt.createCaptionAssembler(converter: TaiwanChinese.makeConverter())
     private var offline: OfflineEngine?
     private var engine: CaptionEngine?
@@ -62,13 +64,22 @@ final class CaptionViewModel: ObservableObject {
                 engine = AzureEngine(key: key, region: AzureEngine.savedRegion)
             } else {
                 if !models.isReady { try await models.download() }
-                if offline == nil {
+                let wantSecond = SecondPassModel.isEnabled && secondPassStore.isReady
+                if offline == nil || offline?.hasSecondPass != wantSecond {
                     let files = models.files
-                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files) }.value
+                    let second = wantSecond ? secondPassStore.directory : nil
+                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files, secondPassDirectory: second) }.value
                 }
                 guard let offline else { return }
+                offline.onRevision = { [weak self] n, text in
+                    Task { @MainActor in self?.revise(n, text) }
+                }
                 engine = offline
             }
+            finalSeqs.removeAll()
+            pendingRevisions.removeAll()
+            proofreadPaused = false
+            finalsSeen = 0
             try engine.begin(onEvents: Self.eventHandler(model: self))
             try audio.start(onSamples: Self.audioHandler(engine: engine, model: self))
             self.engine = engine
@@ -94,10 +105,13 @@ final class CaptionViewModel: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
         engine?.finish(onEvents: Self.eventHandler(model: self))
         engine = nil
+        scheduleProofreading()
     }
 
     func clear() {
         assembler.reset()
+        finalSeqs.removeAll()
+        reviewed.removeAll()
         apply(assembler.state)
     }
 
@@ -118,17 +132,89 @@ final class CaptionViewModel: ObservableObject {
         }
     }
 
+    // MARK: Correcting finished lines (second pass ADR-025, proof-reading ADR-026)
+
+    /// Engine's n-th Final since start → the assembler's number for it.
+    private var finalSeqs: [Int: Int32] = [:]
+    private var finalsSeen = 0
+    /// Second-pass results that arrived before their Final was handled.
+    private var pendingRevisions: [Int: String] = [:]
+
+    private func revise(_ n: Int, _ text: String) {
+        guard let seq = finalSeqs[n] else { pendingRevisions[n] = text; return }
+        apply(assembler.revise(seq: seq, text: text))
+    }
+
+    /// Text of each line when it was last proof-read (or sent for it), by line id.
+    private var reviewed: [Int64: String] = [:]
+    private var proofreadTask: Task<Void, Never>?
+    private var proofreading = false
+    /// Set after a failed request (wrong key, no network…); cleared when listening starts again.
+    private var proofreadPaused = false
+
+    /// Waits for a short pause in the conversation, then proof-reads the lines not yet checked.
+    private func scheduleProofreading() {
+        guard Proofreader.isActive, !proofreadPaused else { return }
+        proofreadTask?.cancel()
+        let unchecked = lines.filter { reviewed[$0.id] != $0.text }.count
+        let delay: UInt64 = unchecked >= Int(Proofreading.shared.MAX_LINES) ? 0 : 2_000_000_000
+        proofreadTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await self?.proofreadNow()
+        }
+    }
+
+    private func proofreadNow() async {
+        guard !proofreading, let key = KeyVault.get(KeyVault.anthropicKey) else { return }
+        // The last line may still grow while someone is talking; leave it for the next round.
+        let candidates = lines.enumerated().filter { i, l in
+            reviewed[l.id] != l.text && !(i == lines.count - 1 && (continuesLastLine || running && !(stableText + tentativeText).isEmpty))
+        }
+        let batch = Array(candidates.prefix(Int(Proofreading.shared.MAX_LINES)))
+        guard let firstIndex = batch.first?.offset else { return }
+        let context = lines[max(0, firstIndex - Int(Proofreading.shared.CONTEXT_LINES))..<firstIndex].map { "\($0.speaker ?? "?")：\($0.text)" }
+        let sent = batch.map { (id: $0.element.id, speaker: $0.element.speaker, text: $0.element.text) }
+        for l in sent { reviewed[l.id] = l.text }
+        proofreading = true
+        defer { proofreading = false }
+        do {
+            let fixed = try await Proofreader.proofread(key: key, model: Proofreader.model, context: Array(context), lines: sent)
+            for l in sent {
+                guard let text = fixed[l.id], lines.first(where: { $0.id == l.id })?.text == l.text else { continue }
+                apply(assembler.replaceLineText(lineId: l.id, text: text))
+                reviewed[l.id] = text
+            }
+        } catch {
+            self.error = "AI 校稿暫停：\(error.localizedDescription)"
+            proofreadPaused = true
+            return
+        }
+        if lines.contains(where: { reviewed[$0.id] != $0.text }) { scheduleProofreading() }
+    }
+
     private func handle(_ events: [TranscriptEvent]) {
         var state = assembler.state
-        for e in events { state = assembler.onEvent(event: e) }
+        var sawFinal = false
+        for e in events {
+            state = assembler.onEvent(event: e)
+            if e is TranscriptEventFinal {
+                sawFinal = true
+                let n = finalsSeen
+                finalsSeen += 1
+                finalSeqs[n] = assembler.lastFinalSeq
+                if let early = pendingRevisions.removeValue(forKey: n) { state = assembler.revise(seq: assembler.lastFinalSeq, text: early) }
+            }
+        }
         apply(state)
+        if sawFinal { scheduleProofreading() }
         // A fatal engine error (e.g. a wrong Azure key) ends listening.
         if running, events.contains(where: { ($0 as? TranscriptEventError)?.recoverable == false }) { stop() }
     }
 
     private func apply(_ state: CaptionState) {
         let newLines = state.lines.enumerated().map { i, line in
-            Line(id: i, text: line.text, speaker: IosBridgeKt.speakerLabelOf(line: line))
+            Line(id: assembler.lineId(index: Int32(i)), text: line.text, speaker: IosBridgeKt.speakerLabelOf(line: line))
         }
         if newLines != lines { lines = newLines }
         stableText = state.stableText

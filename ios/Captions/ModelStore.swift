@@ -109,6 +109,24 @@ final class ModelStore: ObservableObject {
         if !isReady { throw ModelError.incomplete }
     }
 
+    /// Downloads one archive or file into [dir] and checks its SHA-256 (used for optional models).
+    nonisolated static func fetch(_ remote: Remote, into dir: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let tmp = try await Downloader.download(remote.url) { got in
+            progress(remote.bytes > 0 ? min(1, Double(got) / Double(remote.bytes)) : 0)
+        }
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard try sha256(of: tmp) == remote.sha256 else { throw ModelError.checksum(remote.url.lastPathComponent) }
+        if remote.extract.isEmpty {
+            let dest = dir.appendingPathComponent(remote.localName)
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: tmp, to: dest)
+        } else {
+            try await Task.detached(priority: .userInitiated) {
+                try TarBz2.extract(archive: tmp, entries: remote.extract, to: dir)
+            }.value
+        }
+    }
+
     func delete() {
         for f in files.all { try? FileManager.default.removeItem(at: f) }
         isReady = false
