@@ -1,4 +1,0 @@
-faster-whisper>=1.1
-websockets>=12
-opencc-python-reimplemented
-numpy
