@@ -31,6 +31,9 @@ targets:
         embed: false
       - framework: Vendor/onnxruntime.xcframework
         embed: false
+      # Azure Speech SDK (dynamic framework, so it is embedded in the app)
+      - framework: Vendor/MicrosoftCognitiveServicesSpeech.xcframework
+        embed: true
       - sdk: libbz2.tbd
       - sdk: libc++.tbd
       - sdk: AVFoundation.framework

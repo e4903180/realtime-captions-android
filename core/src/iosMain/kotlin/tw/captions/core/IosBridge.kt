@@ -49,3 +49,25 @@ fun speakerLabelOf(line: CaptionLine): String? = line.speaker?.label
 
 /** Speaker letter of the line in progress, or null. */
 fun currentSpeakerLabelOf(state: CaptionState): String? = state.currentSpeaker?.label
+
+/*
+ * Event constructors for engines written in Swift (e.g. Azure). Swift has no Kotlin default
+ * arguments and sees SpeakerId (a value class) only boxed, so speakers are passed as an index:
+ * -1 means unknown.
+ */
+private fun speakerOf(index: Int): SpeakerId? = if (index >= 0) SpeakerId(index) else null
+
+fun partialEvent(text: String, speakerIndex: Int): TranscriptEvent = TranscriptEvent.Partial(text, speakerOf(speakerIndex))
+fun finalEvent(text: String, speakerIndex: Int): TranscriptEvent = TranscriptEvent.Final(text, speakerOf(speakerIndex))
+fun errorEvent(message: String, recoverable: Boolean): TranscriptEvent = TranscriptEvent.Error(message, recoverable)
+fun levelEvent(level: Float): TranscriptEvent = TranscriptEvent.AudioLevel(level)
+fun listeningEvent(): TranscriptEvent = TranscriptEvent.Listening
+
+/** Same 0..1 level scale as the offline pipeline (-60 dBFS → 0, -10 dBFS → 1). */
+fun levelOfSamples(src: CPointer<FloatVar>, count: Int): Float {
+    if (count <= 0) return 0f
+    var s = 0.0
+    for (i in 0 until count) { val x = src[i]; s += x * x }
+    val db = 20 * kotlin.math.log10(kotlin.math.sqrt(s / count) + 1e-9)
+    return ((db + 60) / 50).toFloat().coerceIn(0f, 1f)
+}

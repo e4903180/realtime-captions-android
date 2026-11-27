@@ -24,9 +24,16 @@ final class CaptionViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(fontSize, forKey: "fontSize") }
     }
 
+    @Published var engineId: String = UserDefaults.standard.string(forKey: "engineId") ?? EngineInfo.offlineId {
+        didSet { UserDefaults.standard.set(engineId, forKey: "engineId") }
+    }
+    /// Set when the chosen engine needs a key that is missing; the view opens cloud settings.
+    @Published var showCloudSettings = false
+
     let models = ModelStore()
     private let assembler = IosBridgeKt.createCaptionAssembler(converter: TaiwanChinese.makeConverter())
-    private var engine: OfflineEngine?
+    private var offline: OfflineEngine?
+    private var engine: CaptionEngine?
     private let audio = AudioCapture()
 
     func toggle() {
@@ -43,18 +50,38 @@ final class CaptionViewModel: ObservableObject {
             return
         }
         do {
-            if !models.isReady { try await models.download() }
-            if engine == nil {
-                let files = models.files
-                engine = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files) }.value
+            let engine: CaptionEngine
+            if engineId == EngineInfo.azureId {
+                guard let key = KeyVault.get(KeyVault.azureKey) else {
+                    error = "請先在「雲端服務設定」填入 Azure 金鑰"
+                    showCloudSettings = true
+                    return
+                }
+                engine = AzureEngine(key: key, region: AzureEngine.savedRegion)
+            } else {
+                if !models.isReady { try await models.download() }
+                if offline == nil {
+                    let files = models.files
+                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files) }.value
+                }
+                guard let offline else { return }
+                engine = offline
             }
-            guard let engine else { return }
+            try engine.begin(onEvents: Self.eventHandler(model: self))
             try audio.start(onSamples: Self.audioHandler(engine: engine, model: self))
+            self.engine = engine
             running = true
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    func selectEngine(_ id: String) {
+        if running { stop() }
+        engineId = id
+        error = nil
+        if EngineInfo.byId(id).needsKey, KeyVault.get(KeyVault.azureKey) == nil { showCloudSettings = true }
     }
 
     func stop() {
@@ -64,6 +91,7 @@ final class CaptionViewModel: ObservableObject {
         level = 0
         UIApplication.shared.isIdleTimerDisabled = false
         engine?.finish(onEvents: Self.eventHandler(model: self))
+        engine = nil
     }
 
     func clear() {
@@ -76,7 +104,7 @@ final class CaptionViewModel: ObservableObject {
     }
 
     /// Built outside the main actor: the audio callback runs on the audio thread.
-    private nonisolated static func audioHandler(engine: OfflineEngine, model: CaptionViewModel) -> ([Float]) -> Void {
+    private nonisolated static func audioHandler(engine: CaptionEngine, model: CaptionViewModel) -> ([Float]) -> Void {
         let deliver = eventHandler(model: model)
         return { samples in engine.feed(samples, onEvents: deliver) }
     }
@@ -92,6 +120,8 @@ final class CaptionViewModel: ObservableObject {
         var state = assembler.state
         for e in events { state = assembler.onEvent(event: e) }
         apply(state)
+        // A fatal engine error (e.g. a wrong Azure key) ends listening.
+        if running, events.contains(where: { ($0 as? TranscriptEventError)?.recoverable == false }) { stop() }
     }
 
     private func apply(_ state: CaptionState) {

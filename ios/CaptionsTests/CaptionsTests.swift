@@ -64,4 +64,48 @@ final class CaptionsTests: XCTestCase {
         let cjk = allText.unicodeScalars.filter { (0x4E00...0x9FFF).contains($0.value) }.count
         XCTAssertGreaterThan(cjk, 10, "expected Chinese text, got: \(allText)")
     }
+
+    func testKeyVaultRoundTrip() {
+        let name = "test_key_\(UUID().uuidString)"
+        XCTAssertNil(KeyVault.get(name))
+        KeyVault.put(name, "abcd1234")
+        XCTAssertEqual(KeyVault.get(name), "abcd1234")
+        XCTAssertEqual(KeyVault.hint(name), "••••1234")
+        KeyVault.remove(name)
+        XCTAssertNil(KeyVault.get(name))
+    }
+
+    func testAzureSpeakerLabels() {
+        XCTAssertEqual(AzureEngine.speakerIndex("Guest-1"), 0)
+        XCTAssertEqual(AzureEngine.speakerIndex("Guest-3"), 2)
+        XCTAssertEqual(AzureEngine.speakerIndex("Unknown"), -1)
+        XCTAssertEqual(AzureEngine.speakerIndex(nil), -1)
+        let assembler = IosBridgeKt.createCaptionAssembler(converter: TaiwanChinese.makeConverter())
+        let state = assembler.onEvent(event: IosBridgeKt.finalEvent(text: "你好", speakerIndex: 1))
+        XCTAssertEqual(state.lines.compactMap { IosBridgeKt.speakerLabelOf(line: $0) }, ["B"])
+    }
+
+    /// Links and runs the Azure SDK end to end: a made-up key must come back as a clear error.
+    func testAzureReportsBadKey() async throws {
+        let engine = AzureEngine(key: String(repeating: "0", count: 32), region: "eastasia")
+        let got = expectation(description: "error event")
+        let lock = NSLock()
+        var message: String?
+        let handler: ([TranscriptEvent]) -> Void = { events in
+            for e in events {
+                if let err = e as? TranscriptEventError {
+                    lock.lock(); defer { lock.unlock() }
+                    if message == nil { message = err.message; got.fulfill() }
+                }
+            }
+        }
+        try engine.begin(onEvents: handler)
+        engine.feed([Float](repeating: 0, count: 16_000), onEvents: handler)
+        await fulfillment(of: [got], timeout: 30)
+        engine.finish(onEvents: handler)
+        print("Azure with a bad key: \(message ?? "-")")
+        XCTAssertTrue(message?.contains("金鑰") == true || message?.contains("Azure") == true)
+        let problem = await AzureEngine.testKey(String(repeating: "0", count: 32), region: "eastasia")
+        XCTAssertEqual(problem, "金鑰錯誤，或金鑰不屬於這個區域")
+    }
 }

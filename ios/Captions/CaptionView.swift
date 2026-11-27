@@ -24,13 +24,37 @@ struct CaptionView: View {
         _models = ObservedObject(wrappedValue: model.models)
     }
 
+    @State private var showPicker = false
+
     var body: some View {
         VStack(spacing: 0) {
+            topBar
             captions
             status
             controls
         }
         .background(Color.black.ignoresSafeArea())
+        .sheet(isPresented: Binding(
+            get: { model.showCloudSettings && !showPicker },
+            set: { model.showCloudSettings = $0 }
+        )) { CloudSettingsView() }
+    }
+
+    private var topBar: some View {
+        let engine = EngineInfo.byId(model.engineId)
+        return Button { showPicker = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: engine.offline ? "iphone" : "cloud")
+                Text(engine.name).font(.system(size: 17, weight: .semibold))
+                Image(systemName: "chevron.down").font(.system(size: 13))
+                Spacer()
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .accessibilityLabel("辨識引擎：\(engine.name)，點一下更換")
+        .sheet(isPresented: $showPicker) { EnginePickerView(model: model) }
     }
 
     private var captions: some View {
