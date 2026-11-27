@@ -38,6 +38,18 @@
 - 多語即時翻譯
 - 智慧眼鏡等其他裝置
 
+## iOS（iPhone）版（Android 版穩定後再做）
+
+- 架構：把 `:core`（字幕組裝、文字處理、說話者分群）改成 Kotlin Multiplatform 模組，讓 Android 和 iOS 共用。iOS 畫面用 SwiftUI 做，跟 Android 版同樣是黑底大字。
+- 離線辨識：sherpa-onnx 有 iOS 版，能用同一組模型（X-ASR、Silero VAD、CAM++）。
+- 雲端引擎：Azure Speech SDK、Google 都有 iOS 版。家用伺服器用同一個 WebSocket 協定。
+- iOS 的限制：背景收音要開 audio 背景模式；系統內建辨識（SFSpeechRecognizer）沒有分人功能。
+- 需要準備：
+  - 一台 Mac 和 Xcode，或在 GitHub Actions 上用 macOS 機器建置
+  - Apple 開發者帳號，每年 99 美元
+  - 測試用的 iPhone
+- 發布：TestFlight 給家人測試，之後再上 App Store。
+
 ## 發布（已排入，先不做）
 
 1. 正式簽章版 APK
