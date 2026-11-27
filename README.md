@@ -15,7 +15,7 @@ Mandarin (Traditional Chinese) comes first. English and Taiwanese come next.
 | Module | What it holds |
 | --- | --- |
 | `core` | Kotlin Multiplatform (JVM for Android/desktop, iOS for the iPhone app). `SpeechEngine` interface, `CaptionAssembler` (partial/final results → caption state, stable/tentative split), `TextProcessor` (whitespace, full-width punctuation, correction dictionary, Simplified→Traditional hook), `StreamingPipeline` (streaming recognizer + VAD endpointing + speaker tags) and `SpeakerClusterer` (online speaker clustering) |
-| `app` | Android UI (Jetpack Compose) and engines: `AndroidSpeechEngine` (the phone's built-in recognizer, online or on-device) and `SherpaOnnxEngine` (fully offline, with speaker tags; models are downloaded on first use) |
+| `app` | Android UI (Jetpack Compose) and engines, split into offline and cloud: `SherpaOnnxEngine` (fully offline, with speaker tags; X-ASR 160 ms default and 480 ms; each model pack can be downloaded or removed) and `AzureSpeechEngine` (the user's own Azure key, stored encrypted). The phone's built-in recognizer was removed |
 | `ios` | iPhone app (SwiftUI) using the same core and the same sherpa-onnx models; see [ios/README.md](ios/README.md) |
 | `desktop` | The same sherpa-onnx pipeline on the JVM, plus a benchmark that streams test wavs and writes [docs/benchmark.md](docs/benchmark.md) |
 | `testdata` | Synthetic multi-speaker dialogs (Windows TTS) with ground truth, and noisy variants |
