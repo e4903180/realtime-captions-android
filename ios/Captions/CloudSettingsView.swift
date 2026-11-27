@@ -94,6 +94,7 @@ struct EnginePickerView: View {
                 Section {
                     Toggle("說話者辨識", isOn: $model.speakersOn)
                     if model.speakersOn {
+                        NavigationLink("認得的人（\(VoiceStore.shared.people.count)）") { PeopleView(model: model) }
                         Picker("說話人數", selection: $model.speakerCount) {
                             Text("自動").tag(0)
                             ForEach(2...6, id: \.self) { Text("\($0) 人").tag($0) }
@@ -101,7 +102,7 @@ struct EnginePickerView: View {
                     }
                 } header: { Text("說話者") } footer: {
                     Text(model.speakersOn
-                         ? "分出不同的人，標 A、B、C。知道有幾個人在講話時選人數，離線分人會比較準。"
+                         ? "分出不同的人，標 A、B、C；長按字幕可以替說話者取名字。知道有幾個人在講話時選人數，離線分人會比較準。"
                          : "不分人、不顯示標籤，只照停頓換行；離線時比較省電。")
                 }
                 Section("外觀") {

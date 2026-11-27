@@ -90,6 +90,11 @@ data class PipelineConfig(
      * finished (see [StreamingPipeline.takeUtteranceAudio], ADR-025). 0 keeps nothing.
      */
     val keepUtteranceAudioSec: Float = 0f,
+    /**
+     * With registered people (認聲音), a voice nobody registered counts as background (TV, other
+     * tables). False keeps such voices as ordinary speakers with A/B labels.
+     */
+    val unknownIsBackground: Boolean = true,
 )
 
 /**
@@ -213,7 +218,7 @@ class StreamingPipeline(
                 val person = known.match(embedder!!.embed(speech.toArray()))
                 if (person != null) provisionalName = person.name else provisionalUnknown = true
             }
-            val bg = provisionalUnknown || (provisionalName == null && focus != null && speech.size >= config.sampleRate / 2 &&
+            val bg = (provisionalUnknown && config.unknownIsBackground) || (provisionalName == null && focus != null && speech.size >= config.sampleRate / 2 &&
                 focus.isBackground(FocusTracker.levelDb(speech.toArray())))
             out += TranscriptEvent.Partial(text, if (bg) null else provisional, background = bg, speakerName = provisionalName)
         }
@@ -243,8 +248,8 @@ class StreamingPipeline(
             val person = if (known != null && voice != null) known.match(voice) else null
             val background = when {
                 // With registered people, the voice decides: nobody known means background.
-                known != null && voice != null -> person == null
-                known != null && provisionalUnknown -> true
+                known != null && voice != null -> config.unknownIsBackground && person == null
+                known != null && provisionalUnknown -> config.unknownIsBackground
                 else -> focus != null && samples.isNotEmpty() && focus.observe(FocusTracker.levelDb(samples))
             }
             val speaker = when {

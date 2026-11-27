@@ -39,6 +39,8 @@ struct CaptionView: View {
 
     @State private var showPicker = false
     @State private var showTranscripts = false
+    /// Long-pressed line: 「這句話是誰說的？」
+    @State private var naming: Line?
     @AppStorage(Proofreader.enabledKey) private var proofreadOn = false
     /// 看電視模式 (ADR-032): only the newest few lines, large and centred, no speaker tags.
     @AppStorage("tvMode") private var tvMode = false
@@ -94,6 +96,7 @@ struct CaptionView: View {
         .padding(.vertical, 8)
         .sheet(isPresented: $showPicker) { EnginePickerView(model: model) }
         .sheet(isPresented: $showTranscripts) { TranscriptsView() }
+        .sheet(item: $naming) { line in NameSpeakerView(model: model, line: line) }
     }
 
     /// Like subtitles on a TV: the newest lines at the bottom, nothing to scroll.
@@ -153,6 +156,8 @@ struct CaptionView: View {
                     ForEach(model.lines) { line in
                         let continued = model.continuesLastLine && line.id == model.lines.last?.id
                         lineView(line.text, speaker: line.speaker, current: continued)
+                            .contentShape(Rectangle())
+                            .onLongPressGesture { if model.speakersOn { naming = line } }
                     }
                     if !model.continuesLastLine && (!model.stableText.isEmpty || !model.tentativeText.isEmpty) {
                         lineView(nil, speaker: model.currentSpeaker, current: true)

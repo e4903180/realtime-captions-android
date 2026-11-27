@@ -44,9 +44,16 @@ fun createOfflinePipeline(
     embedder: SpeakerEmbedder?,
     speakerThreshold: Float,
     keepAudio: Boolean,
+    registry: VoiceRegistry?,
 ): StreamingPipeline = StreamingPipeline(
     asr, vad, embedder, SpeakerClusterer(speakerThreshold),
-    PipelineConfig(vadEndpointSilenceSec = 0.6f, focusMarginDb = null, keepUtteranceAudioSec = if (keepAudio) 20f else 0f),
+    PipelineConfig(
+        vadEndpointSilenceSec = 0.6f,
+        focusMarginDb = null,
+        keepUtteranceAudioSec = if (keepAudio) 20f else 0f,
+        unknownIsBackground = false,
+    ),
+    registry = registry,
 )
 
 /**
@@ -57,10 +64,10 @@ fun createCaptionAssembler(converter: ChineseScriptConverter): CaptionAssembler 
     CaptionAssembler(TextProcessor.default(converter = converter), mergeGapSec = 1.5)
 
 /** Speaker letter of a caption line ("A", "B", ...), or null. Value classes reach Swift boxed, so read it here. */
-fun speakerLabelOf(line: CaptionLine): String? = line.speaker?.label
+fun speakerLabelOf(line: CaptionLine): String? = line.speakerName ?: line.speaker?.label
 
 /** Speaker letter of the line in progress, or null. */
-fun currentSpeakerLabelOf(state: CaptionState): String? = state.currentSpeaker?.label
+fun currentSpeakerLabelOf(state: CaptionState): String? = state.currentSpeakerName ?: state.currentSpeaker?.label
 
 /*
  * Event constructors for engines written in Swift (e.g. Azure). Swift has no Kotlin default

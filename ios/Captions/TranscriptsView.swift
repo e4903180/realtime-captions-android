@@ -80,6 +80,8 @@ struct TranscriptDetailView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var confirmDelete = false
+    @State private var renamingSpeaker: String?
+    @State private var speakerName = ""
 
     var body: some View {
         if let t = store.all.first(where: { $0.id == id }) {
@@ -93,7 +95,12 @@ struct TranscriptDetailView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(clock(t.started.addingTimeInterval(line.start))).font(.caption.monospacedDigit()).foregroundColor(.secondary)
-                                if let s = line.speaker { Text(s).font(.caption.bold()).foregroundColor(.accentColor) }
+                                if let s = line.speaker {
+                                    Button { speakerName = s; renamingSpeaker = s } label: {
+                                        Text(s).font(.caption.bold()).foregroundColor(.accentColor)
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
                             }
                             Text(line.text)
                                 .font(.body)
@@ -120,6 +127,13 @@ struct TranscriptDetailView: View {
                 TextField("例如：週三家庭聚餐", text: $newTitle)
                 Button("取消", role: .cancel) {}
                 Button("儲存") { store.rename(id, to: newTitle) }
+            }
+            .alert("「\(renamingSpeaker ?? "")」是誰？", isPresented: Binding(get: { renamingSpeaker != nil }, set: { if !$0 { renamingSpeaker = nil } })) {
+                TextField("名字，例如 媽媽", text: $speakerName)
+                Button("取消", role: .cancel) {}
+                Button("整份都改") { if let old = renamingSpeaker { store.renameSpeaker(id, from: old, to: speakerName) } }
+            } message: {
+                Text("這份逐字稿裡這位說話者的每一句都會改成新名字，下載的檔案也會用新名字。")
             }
             .confirmationDialog("刪除這份逐字稿？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("刪除", role: .destructive) { store.delete(id); dismiss() }

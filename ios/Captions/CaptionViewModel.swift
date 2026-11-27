@@ -117,7 +117,10 @@ final class CaptionViewModel: ObservableObject {
                 if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers {
                     let files = models.files
                     let second = wantSecond ? secondPassStore.directory : nil
-                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second) }.value
+                    let registry = VoiceStore.shared.registry
+                    offline = await Task.detached(priority: .userInitiated) {
+                        OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second, registry: registry)
+                    }.value
                 }
                 guard let offline else { return }
                 offline.onRevision = { [weak self] n, text in
@@ -214,6 +217,26 @@ final class CaptionViewModel: ObservableObject {
         finalSeqs.removeAll()
         reviewed.removeAll()
         apply(assembler.state)
+    }
+
+    /// Whether line [id] has a voice print (offline engine with speakers on), so it can be remembered.
+    func hasVoice(_ id: Int64) -> Bool {
+        guard let i = lines.firstIndex(where: { $0.id == id }), i < assembler.state.lines.count else { return false }
+        return assembler.state.lines[i].voice != nil
+    }
+
+    /// 「這是誰」: names the speaker of line [id] (all their lines with [wholeSpeaker]) and, with
+    /// [remember], learns the voice so later sessions show the name too (ADR-034).
+    func nameSpeaker(of id: Int64, as name: String, wholeSpeaker: Bool, remember: Bool) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let i = lines.firstIndex(where: { $0.id == id }), i < assembler.state.lines.count else { return }
+        if remember, let voice = assembler.state.lines[i].voice { VoiceStore.shared.remember(name: name, voice: voice) }
+        apply(wholeSpeaker ? assembler.nameSpeaker(index: Int32(i), name: name) : assembler.nameLine(index: Int32(i), name: name))
+    }
+
+    /// A person was renamed on the 認得的人 page: their lines on screen follow.
+    func renameSpeaker(_ old: String, to name: String) {
+        apply(assembler.renameSpeaker(oldName: old, name: name))
     }
 
     func changeFontSize(by delta: Double) {
