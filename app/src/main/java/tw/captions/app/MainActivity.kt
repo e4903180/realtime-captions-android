@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity() {
                     onSaveAzure = viewModel::saveAzure,
                     onTestAzure = viewModel::testAzure,
                     onRemoveAzure = viewModel::removeAzure,
+                    onSetPrices = viewModel::setUsagePrices,
+                    onResetUsage = viewModel::resetUsage,
                 )
             }
         }

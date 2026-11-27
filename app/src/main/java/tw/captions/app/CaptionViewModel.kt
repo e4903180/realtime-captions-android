@@ -54,6 +54,11 @@ data class UiState(
     val cloudSeconds: Int? = null,
     /** Debug builds: wav file played instead of the microphone. */
     val debugWav: String? = null,
+    /** Paid cloud audio sent from this phone, by day (ADR-028). */
+    val usage: tw.captions.core.CloudUsage = tw.captions.core.CloudUsage(),
+    val usagePrices: tw.captions.core.CloudUsage.Prices = tw.captions.core.CloudUsage.Prices(),
+    /** "yyyy-MM-dd" for the usage screen. */
+    val today: String = "",
 )
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -77,6 +82,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val vault = KeyVault(app)
 
     private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+
+    private val usageStore = tw.captions.app.settings.UsageStore(app)
 
     private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
 
@@ -102,6 +109,31 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         refreshInstalled()
         refreshKeys()
         loadPeople()
+        _ui.update { it.copy(usage = usageStore.load(), usagePrices = usageStore.loadPrices(), today = usageStore.today()) }
+    }
+
+    // ---- Cloud usage (ADR-028): audio seconds sent to Azure, written every 10 s and on stop ----
+
+    private var unloggedSeconds = 0
+
+    private fun flushUsage() {
+        val sec = unloggedSeconds
+        unloggedSeconds = 0
+        if (sec <= 0) return
+        val today = usageStore.today()
+        val next = _ui.value.usage.add(today, sec.toDouble())
+        usageStore.save(next)
+        _ui.update { it.copy(usage = next, today = today) }
+    }
+
+    fun setUsagePrices(prices: tw.captions.core.CloudUsage.Prices) {
+        usageStore.savePrices(prices)
+        _ui.update { it.copy(usagePrices = prices) }
+    }
+
+    fun resetUsage() {
+        usageStore.reset()
+        _ui.update { it.copy(usage = tw.captions.core.CloudUsage(), today = usageStore.today()) }
     }
 
     // ---- 認聲音: people the user named ----
@@ -235,6 +267,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     _ui.update { it.copy(cloudSeconds = sec) }
                     kotlinx.coroutines.delay(1000)
                     sec++
+                    unloggedSeconds++
+                    if (unloggedSeconds >= 10) flushUsage()
                 }
             }
         }
@@ -318,6 +352,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun markStopped() {
         cloudTimer?.cancel()
+        flushUsage()
         _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 

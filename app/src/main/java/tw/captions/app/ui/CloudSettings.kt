@@ -36,6 +36,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import tw.captions.app.UiState
 import tw.captions.app.engine.AzureSpeechEngine
+import tw.captions.core.CloudUsage
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 private val Sub = Color(0xFFB0B0B0)
 private val Accent = Color(0xFF66BB6A)
@@ -48,6 +53,8 @@ fun CloudSettings(
     onSaveAzure: (key: String, region: String) -> Unit,
     onTestAzure: () -> Unit,
     onRemoveAzure: () -> Unit,
+    onSetPrices: (CloudUsage.Prices) -> Unit = {},
+    onResetUsage: () -> Unit = {},
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -68,6 +75,7 @@ fun CloudSettings(
                 color = Sub, fontSize = 15.sp,
             )
             AzureCard(ui, onSaveAzure, onTestAzure, onRemoveAzure)
+            UsageCard(ui, onSetPrices, onResetUsage)
             Text(
                 "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供。",
                 color = Sub, fontSize = 14.sp,
@@ -142,3 +150,86 @@ private fun AzureCard(
 
 private fun regionName(id: String) = AzureSpeechEngine.REGIONS.firstOrNull { it.first == id }?.second ?: id
 
+
+/** Cloud usage and estimated cost, recorded on this phone only (ADR-028). */
+@Composable
+private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onReset: () -> Unit) {
+    var range by remember { mutableStateOf(CloudUsage.Range.MONTH) }
+    var price by remember(ui.usagePrices.azurePerHour) { mutableStateOf(ui.usagePrices.azurePerHour.toString()) }
+    var confirmReset by remember { mutableStateOf(false) }
+    val today = ui.today
+    val seconds = ui.usage.seconds(range, today)
+    val cost = ui.usage.azureCost(range, today, ui.usagePrices)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("雲端用量與費用", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CloudUsage.Range.entries.forEach { r ->
+                if (r == range) {
+                    Button(onClick = { range = r }) { Text(r.label) }
+                } else {
+                    OutlinedButton(onClick = { range = r }) { Text(r.label, color = Color.White) }
+                }
+            }
+        }
+        Text("Azure 辨識：${formatDuration(seconds)}", color = Color.White, fontSize = 18.sp)
+        Text("估計費用：US\$${"%.2f".format(cost)}", color = Color.White, fontSize = 18.sp)
+        if (ui.usagePrices.azureFreeTier) {
+            val used = ui.usage.freeTierUsed(today)
+            val warn = used >= 0.8
+            Text(
+                "本月免費額度：已用 ${formatDuration(ui.usage.seconds(CloudUsage.Range.MONTH, today))}／${CloudUsage.AZURE_FREE_HOURS.toInt()} 小時（${(used * 100).toInt()}%）",
+                color = if (warn) Color(0xFFFFB74D) else Sub, fontSize = 15.sp,
+            )
+            LinearProgressIndicator(
+                progress = { used.toFloat().coerceIn(0f, 1f) },
+                color = if (warn) Color(0xFFFFB74D) else Accent,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text("單價", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = price,
+            onValueChange = { v ->
+                price = v
+                v.toDoubleOrNull()?.takeIf { it >= 0 }?.let { onSetPrices(ui.usagePrices.copy(azurePerHour = it)) }
+            },
+            label = { Text("Azure 每小時（美元）") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            Modifier.fillMaxWidth().clickable { onSetPrices(ui.usagePrices.copy(azureFreeTier = !ui.usagePrices.azureFreeTier)) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = ui.usagePrices.azureFreeTier, onCheckedChange = { onSetPrices(ui.usagePrices.copy(azureFreeTier = it)) })
+            Text("免費方案（F0）：每月前 5 小時不計費", color = Color.White, fontSize = 15.sp)
+        }
+        Text(
+            "這是這支手機的估計值，照使用雲端辨識的時間計算。實際帳單請看 Azure 入口網站的「成本管理」；同一組金鑰在其他裝置的用量不會算進來。",
+            color = Sub, fontSize = 14.sp,
+        )
+        if (confirmReset) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("確定清除所有用量紀錄？", color = Color.White, fontSize = 15.sp)
+                TextButton(onClick = { onReset(); confirmReset = false }) { Text("清除", color = Color(0xFFFF8A80)) }
+                TextButton(onClick = { confirmReset = false }) { Text("取消", color = Color.White) }
+            }
+        } else {
+            TextButton(onClick = { confirmReset = true }) { Text("用量歸零", color = Color(0xFFFF8A80)) }
+        }
+    }
+}
+
+private fun formatDuration(seconds: Double): String {
+    val s = seconds.toLong()
+    val h = s / 3600
+    val m = (s % 3600) / 60
+    return if (h > 0) "$h 小時 $m 分" else "$m 分 ${s % 60} 秒"
+}
