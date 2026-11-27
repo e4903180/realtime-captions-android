@@ -1,0 +1,70 @@
+# XcodeGen spec for the iPhone app. Generate the Xcode project with `xcodegen generate`
+# (see ios/README.md); the .xcodeproj itself is not checked in.
+name: Captions
+options:
+  bundleIdPrefix: tw.captions
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+targets:
+  Captions:
+    type: application
+    platform: iOS
+    sources:
+      - path: Captions
+      - path: Vendor/SherpaOnnx.swift
+      - path: Vendor/opencc
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: ../core/build/XCFrameworks/release/CaptionsCore.xcframework
+        embed: false
+      - framework: Vendor/sherpa-onnx.xcframework
+        embed: false
+      - framework: Vendor/onnxruntime.xcframework
+        embed: false
+      - sdk: libbz2.tbd
+      - sdk: libc++.tbd
+      - sdk: AVFoundation.framework
+      - sdk: CryptoKit.framework
+      - sdk: CoreML.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CAPTIONS_BUNDLE_ID)
+        PRODUCT_NAME: Captions
+        INFOPLIST_FILE: Captions/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: Captions/Captions-Bridging-Header.h
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        OTHER_LDFLAGS: ["-ObjC"]
+        ENABLE_BITCODE: NO
+  CaptionsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: CaptionsTests
+    dependencies:
+      - target: Captions
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CAPTIONS_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Captions.app/Captions
+schemes:
+  Captions:
+    build:
+      targets:
+        Captions: all
+        CaptionsTests: [test]
+    test:
+      targets:
+        - CaptionsTests
