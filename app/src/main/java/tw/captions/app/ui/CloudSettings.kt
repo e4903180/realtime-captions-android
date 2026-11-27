@@ -38,7 +38,6 @@ import tw.captions.app.UiState
 import tw.captions.app.engine.AzureSpeechEngine
 import tw.captions.core.CloudUsage
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 
@@ -155,7 +154,7 @@ private fun regionName(id: String) = AzureSpeechEngine.REGIONS.firstOrNull { it.
 @Composable
 private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onReset: () -> Unit) {
     var range by remember { mutableStateOf(CloudUsage.Range.MONTH) }
-    var price by remember(ui.usagePrices.azurePerHour) { mutableStateOf(ui.usagePrices.azurePerHour.toString()) }
+    var price by remember { mutableStateOf(ui.usagePrices.azurePerHour.toString()) }
     var confirmReset by remember { mutableStateOf(false) }
     val today = ui.today
     val seconds = ui.usage.seconds(range, today)
@@ -179,19 +178,12 @@ private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onR
         }
         Text("Azure 辨識：${formatDuration(seconds)}", color = Color.White, fontSize = 18.sp)
         Text("估計費用：US\$${"%.2f".format(cost)}", color = Color.White, fontSize = 18.sp)
-        if (ui.usagePrices.azureFreeTier) {
-            val used = ui.usage.freeTierUsed(today)
-            val warn = used >= 0.8
-            Text(
-                "本月免費額度：已用 ${formatDuration(ui.usage.seconds(CloudUsage.Range.MONTH, today))}／${CloudUsage.AZURE_FREE_HOURS.toInt()} 小時（${(used * 100).toInt()}%）",
-                color = if (warn) Color(0xFFFFB74D) else Sub, fontSize = 15.sp,
-            )
-            LinearProgressIndicator(
-                progress = { used.toFloat().coerceIn(0f, 1f) },
-                color = if (warn) Color(0xFFFFB74D) else Accent,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        Text(
+            "計費標準：Azure 即時辨識照使用時間計費，約 US\$${"%.2f".format(ui.usagePrices.azurePerHour)}／小時" +
+                (if (ui.usagePrices.azureFreeTier) "，免費方案（F0）每月前 5 小時不計費。" else "。") +
+                "\n本月目前預估：US\$${"%.2f".format(ui.usage.azureCost(CloudUsage.Range.MONTH, today, ui.usagePrices))}",
+            color = Sub, fontSize = 15.sp,
+        )
         Text("單價", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = price,
@@ -204,6 +196,22 @@ private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onR
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
         )
+        var limit by remember {
+            mutableStateOf(if (ui.usagePrices.monthlyLimit > 0) ui.usagePrices.monthlyLimit.toString() else "")
+        }
+        OutlinedTextField(
+            value = limit,
+            onValueChange = { v ->
+                limit = v
+                if (v.isBlank()) onSetPrices(ui.usagePrices.copy(monthlyLimit = 0.0))
+                else v.toDoubleOrNull()?.takeIf { it >= 0 }?.let { onSetPrices(ui.usagePrices.copy(monthlyLimit = it)) }
+            },
+            label = { Text("每月費用上限（美元，空白＝不限）") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("超過上限時會提醒你，這次先改用離線辨識；你也可以選擇繼續用雲端。", color = Sub, fontSize = 14.sp)
         Row(
             Modifier.fillMaxWidth().clickable { onSetPrices(ui.usagePrices.copy(azureFreeTier = !ui.usagePrices.azureFreeTier)) },
             verticalAlignment = Alignment.CenterVertically,

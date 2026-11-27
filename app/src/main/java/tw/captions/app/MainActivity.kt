@@ -79,6 +79,23 @@ class MainActivity : ComponentActivity() {
             if (showPeople) {
                 tw.captions.app.ui.PeopleSheet(ui = ui, onDismiss = { showPeople = false }, onForget = viewModel::forgetPerson)
             }
+            if (ui.usageLimitHit) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = viewModel::dismissLimitNotice,
+                    title = { androidx.compose.material3.Text("已達雲端費用上限") },
+                    text = {
+                        androidx.compose.material3.Text(
+                            "本月 Azure 預估費用已達你設定的上限（US\$${"%.2f".format(ui.usagePrices.monthlyLimit)}），這次先改用手機離線辨識。想繼續用雲端也可以。",
+                        )
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = viewModel::dismissLimitNotice) { androidx.compose.material3.Text("用離線就好") }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = viewModel::continueCloudAnyway) { androidx.compose.material3.Text("繼續用雲端") }
+                    },
+                )
+            }
             if (showSettings) {
                 CloudSettings(
                     ui = ui,

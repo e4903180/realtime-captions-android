@@ -106,6 +106,7 @@ fun EnginePicker(
                         else -> null
                     },
                     onOpenSettings = onOpenSettings,
+                    billing = if (info.paid) billingLine(ui) else null,
                 )
             }
             Spacer(Modifier.height(16.dp))
@@ -142,6 +143,7 @@ private fun EngineRow(
     onRemove: () -> Unit,
     keyHint: String?,
     onOpenSettings: () -> Unit,
+    billing: String? = null,
 ) {
     Column(
         Modifier
@@ -160,6 +162,7 @@ private fun EngineRow(
             Text(info.name, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         }
         Text(info.subtitle, color = Sub, fontSize = 15.sp, lineHeight = 21.sp)
+        billing?.let { Text(it, color = Sub, fontSize = 14.sp, lineHeight = 20.sp) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (info.recommended) Badge("推薦", Accent)
             Badge(if (info.offline) "不用網路" else "需要網路", Sub)
@@ -212,3 +215,12 @@ private fun Badge(text: String, color: Color) {
 }
 
 private fun mb(bytes: Long): String = "${(bytes + 500_000) / 1_000_000} MB"
+
+/** Billing standard and this month's estimate, shown under a paid engine (ADR-028). */
+private fun billingLine(ui: tw.captions.app.UiState): String {
+    val p = ui.usagePrices
+    val month = ui.usage.azureCost(tw.captions.core.CloudUsage.Range.MONTH, ui.today, p)
+    val free = if (p.azureFreeTier) "，免費方案每月前 5 小時不計費" else ""
+    val limit = if (p.monthlyLimit > 0) "（上限 US\$${"%.2f".format(p.monthlyLimit)}）" else ""
+    return "計費：約 US\$${"%.2f".format(p.azurePerHour)}／小時$free。本月預估 US\$${"%.2f".format(month)}$limit"
+}

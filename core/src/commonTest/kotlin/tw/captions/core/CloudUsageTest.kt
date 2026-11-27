@@ -40,6 +40,15 @@ class CloudUsageTest {
     }
 
     @Test
+    fun monthlyLimit() {
+        val u = CloudUsage().add("2026-11-27", 3 * 3600.0)
+        assertEquals(false, u.overLimit("2026-11-27", paidPrices)) // no limit set
+        assertEquals(false, u.overLimit("2026-11-27", paidPrices.copy(monthlyLimit = 5.0)))
+        assertEquals(true, u.overLimit("2026-11-27", paidPrices.copy(monthlyLimit = 3.0)))
+        assertEquals(false, u.overLimit("2026-12-01", paidPrices.copy(monthlyLimit = 3.0))) // new month
+    }
+
+    @Test
     fun keepsAboutAYear() {
         var u = CloudUsage()
         for (i in 0 until 410) u = u.add("d" + i.toString().padStart(4, '0'), 1.0)

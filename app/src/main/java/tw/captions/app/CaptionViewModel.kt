@@ -59,6 +59,8 @@ data class UiState(
     val usagePrices: tw.captions.core.CloudUsage.Prices = tw.captions.core.CloudUsage.Prices(),
     /** "yyyy-MM-dd" for the usage screen. */
     val today: String = "",
+    /** The monthly cloud limit was reached and captions switched to the offline engine. */
+    val usageLimitHit: Boolean = false,
 )
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -124,6 +126,33 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val next = _ui.value.usage.add(today, sec.toDouble())
         usageStore.save(next)
         _ui.update { it.copy(usage = next, today = today) }
+        if (job != null && isPaid(_ui.value.engineId) && limitReached()) switchToOfflineForLimit()
+    }
+
+    /** The user chose to keep using the cloud past the limit; holds until the app is closed. */
+    private var limitOverridden = false
+
+    private fun isPaid(engineId: String) = EngineCatalog.byId(engineId)?.paid == true
+
+    private fun limitReached() = !limitOverridden && _ui.value.usage.overLimit(usageStore.today(), _ui.value.usagePrices)
+
+    /** Over the monthly limit: pause the cloud for now and continue with the offline engine (not saved as the user's choice). */
+    private fun switchToOfflineForLimit() {
+        stop()
+        _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, usageLimitHit = true) }
+        start()
+    }
+
+    /** From the limit notice: go back to the cloud engine and stop asking until the app is closed. */
+    fun continueCloudAnyway() {
+        limitOverridden = true
+        _ui.update { it.copy(usageLimitHit = false) }
+        selectEngine(AzureSpeechEngine.ID)
+        if (job == null) start()
+    }
+
+    fun dismissLimitNotice() {
+        _ui.update { it.copy(usageLimitHit = false) }
     }
 
     fun setUsagePrices(prices: tw.captions.core.CloudUsage.Prices) {
@@ -256,6 +285,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val engine = engines.first { it.id == _ui.value.engineId }
         if (engine is SherpaOnnxEngine && !models.isInstalled(engine.packs)) {
             download(engine.id, startAfter = true)
+            return
+        }
+        if (isPaid(engine.id) && limitReached()) {
+            switchToOfflineForLimit()
             return
         }
         _ui.update { it.copy(running = true) }

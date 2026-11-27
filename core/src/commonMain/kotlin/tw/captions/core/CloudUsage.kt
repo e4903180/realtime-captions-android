@@ -17,6 +17,8 @@ data class CloudUsage(val azureSecondsByDay: Map<String, Double> = emptyMap()) {
         val azurePerHour: Double = 1.0,
         /** On the free tier (F0) the first [AZURE_FREE_HOURS] each month cost nothing. */
         val azureFreeTier: Boolean = true,
+        /** Monthly spending limit in US dollars; 0 means no limit. */
+        val monthlyLimit: Double = 0.0,
     )
 
     fun add(day: String, seconds: Double): CloudUsage {
@@ -33,6 +35,10 @@ data class CloudUsage(val azureSecondsByDay: Map<String, Double> = emptyMap()) {
         Range.MONTH -> azureSecondsByDay.filterKeys { it.startsWith(today.take(7)) }.values.sum()
         Range.ALL -> azureSecondsByDay.values.sum()
     }
+
+    /** True when a monthly limit is set and this month's estimated cost has reached it. */
+    fun overLimit(today: String, prices: Prices): Boolean =
+        prices.monthlyLimit > 0 && azureCost(Range.MONTH, today, prices) >= prices.monthlyLimit
 
     /** Share of this month's free hours used, 0..1+ (only meaningful on the free tier). */
     fun freeTierUsed(today: String): Double = seconds(Range.MONTH, today) / 3600 / AZURE_FREE_HOURS

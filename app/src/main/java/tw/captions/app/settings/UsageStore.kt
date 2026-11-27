@@ -25,10 +25,11 @@ class UsageStore(context: Context) {
     fun loadPrices() = CloudUsage.Prices(
         azurePerHour = prefs.getFloat(KEY_PRICE, 1.0f).toDouble(),
         azureFreeTier = prefs.getBoolean(KEY_FREE, true),
+        monthlyLimit = prefs.getFloat(KEY_LIMIT, 0f).toDouble(),
     )
 
     fun savePrices(p: CloudUsage.Prices) {
-        prefs.edit().putFloat(KEY_PRICE, p.azurePerHour.toFloat()).putBoolean(KEY_FREE, p.azureFreeTier).apply()
+        prefs.edit().putFloat(KEY_PRICE, p.azurePerHour.toFloat()).putBoolean(KEY_FREE, p.azureFreeTier).putFloat(KEY_LIMIT, p.monthlyLimit.toFloat()).apply()
     }
 
     fun reset() = prefs.edit().remove(KEY_DAYS).apply()
@@ -37,5 +38,6 @@ class UsageStore(context: Context) {
         const val KEY_DAYS = "azure_seconds_by_day"
         const val KEY_PRICE = "azure_per_hour"
         const val KEY_FREE = "azure_free_tier"
+        const val KEY_LIMIT = "monthly_limit"
     }
 }
