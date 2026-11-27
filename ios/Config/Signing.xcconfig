@@ -1,0 +1,6 @@
+// Signing settings for installing on a real iPhone with a free Apple ID.
+// Copy Signing.local.xcconfig.example to Signing.local.xcconfig (not checked in) and fill in
+// your own Team ID and a bundle ID nobody else uses; see ios/README.md.
+CAPTIONS_BUNDLE_ID = tw.captions.ios
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"

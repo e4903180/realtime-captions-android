@@ -1,5 +1,6 @@
 package tw.captions.core
 
+import kotlin.jvm.JvmInline
 import kotlinx.coroutines.flow.Flow
 
 /**

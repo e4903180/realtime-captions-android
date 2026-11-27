@@ -139,3 +139,25 @@
 
 - **決定：** 用 1.0 秒。依 ADR-009 以台灣口音為主：1.0 秒幾乎不影響台灣腔朗讀的正確率，又讓會議中多出來的假說話者從 6.3 降到 4.8。
 - **後果：** 會議中仍會多找出 1–2 個說話者；之後可以加「事後合併很像的說話者」。
+
+## ADR-017 iPhone 版：同一個 repo，Kotlin Multiplatform 共用核心，SwiftUI 畫面
+
+- **日期：** 2026-11-27
+- **背景：** 使用者想要 iPhone 版，並問是否要跟 Android 版分開。`:core`（字幕組句、文字整理、說話者分群、串流管線）原本就是純 Kotlin，沒有用到 Android。
+- **決定：**
+  1. 同一個 repo。`:core` 改成 Kotlin Multiplatform：JVM 目標給 Android 和 `:desktop`，iOS 目標（iosArm64、iosSimulatorArm64、iosX64）打包成 `CaptionsCore.xcframework`。iOS 目標只在 macOS 上加入，所以 Windows、Linux 和 Android CI 的建置完全不變。
+  2. iPhone 畫面用 SwiftUI（`ios/`），Xcode 專案用 XcodeGen 從 `ios/project.yml` 產生，不把 .xcodeproj 放進 repo。
+  3. 離線引擎和 Android 一樣：sherpa-onnx 2.0.3（iOS 靜態 xcframework＋onnxruntime 1.28.2）、X-ASR 160 ms、Silero VAD、CAM++，同一組模型與 SHA-256，第一次使用時下載（ADR-012）。sherpa-onnx 的 Swift 包裝實作核心的 `StreamingAsr`、`VoiceActivityDetector`、`SpeakerEmbedder` 介面，斷句和說話者邏輯全部用共用的 `StreamingPipeline`。
+  4. 安裝方式（使用者選的）：免費 Apple ID＋Mac 上的 Xcode，用線接 iPhone 安裝，每 7 天要重新簽一次；暫不付費、不用 TestFlight。
+  5. GitHub Actions 的 macOS runner（`.github/workflows/ios.yml`）負責：核心在 iOS 模擬器上的測試、真機（未簽章）建置、模擬器上的 App 測試，包含用真模型跑錄音的端對端測試。這樣在使用者的 Mac 裝 Xcode 之前，就能確認程式可以編譯、模型可以跑。
+- **其他選項：** 分開的 iOS repo 全部用 Swift 重寫（邏輯會分岔，兩邊結果不一致）；Compose Multiplatform 共用畫面（iOS 版還不夠成熟，也較難用 iOS 原生的音訊與無障礙功能）；Flutter／React Native（要重寫 Android 版）。
+- **差異：** sherpa-onnx 的 C API 只提供 VAD 的「是否在說話」狀態，沒有 Android JNI 的逐格機率，所以 iOS 用最短靜音 0.1 秒的狀態代替，斷句可能比 Android 晚約 0.1 秒。實機測試時再比較。
+- **後果：** 修改 `:core` 會同時影響兩個平台；兩個 CI（Build、iOS）都要通過才合併。
+
+## ADR-018 簡轉繁台灣用語改成共用的 Kotlin 實作
+
+- **日期：** 2026-11-27
+- **背景：** Android 用 opencc4j（JVM 函式庫）把 sherpa-onnx 的簡體輸出轉成台灣繁體用語，iOS 沒辦法用。
+- **決定：** 在 `:core` 加 `OpenCcTaiwanConverter`：讀 opencc4j 內附的同一批 OpenCC 字典（TWPhrases、TWVariants、STPhrases、STCharacters），最長詞優先轉換，再修正台灣異體字（啓→啟）。iOS 從 App 內附的字典檔建立轉換器（`ios/scripts/fetch-deps.sh` 從 Maven 取同一版 opencc4j 的字典）。JVM 測試在 15 句常見句子上和 opencc4j 比對，結果完全相同（軟件→軟體、視頻→影片、出租車→計程車、打印機→印表機、筆記本電腦→膝上型電腦、網絡→網路）。
+- **其他選項：** iOS 內建 `Hans-Hant` 轉換（只有字，沒有台灣用語）；SwiftyOpenCC（多一個 C++ 套件要編譯）。
+- **後果：** Android 暫時維持 opencc4j，之後可以改用同一個共用轉換器，少一個依賴。
