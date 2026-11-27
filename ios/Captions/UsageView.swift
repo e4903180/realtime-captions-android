@@ -8,7 +8,6 @@ struct UsageView: View {
 
     var body: some View {
         let day = log.total(range)
-        let month = log.total(.month)
         let azure = log.azureCost(range)
         let claude = log.claudeCost(day)
         List {
@@ -26,25 +25,15 @@ struct UsageView: View {
                 Text("只算這支手機用的量，是估計值。實際帳單請看 Azure 入口網站的「成本管理」和 Anthropic 主控台的 Usage。")
             }
 
-            Section("Azure 語音") {
+            Section {
                 row("收音時間", Self.duration(day.azureSeconds))
-                row("估計費用", Self.usd(azure))
-                if log.prices.azureFreeTier {
-                    let used = month.azureSeconds / 3600
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("本月免費額度：已用 \(String(format: "%.1f", used)) / \(Int(UsageLog.azureFreeHours)) 小時")
-                        ProgressView(value: min(1, used / UsageLog.azureFreeHours))
-                            .tint(used >= UsageLog.azureFreeHours * 0.8 ? .orange : .green)
-                        if used >= UsageLog.azureFreeHours {
-                            Text("免費額度用完了：F0 方案這個月會停止辨識，標準方案會開始收費。").font(.footnote).foregroundColor(.orange)
-                        } else if used >= UsageLog.azureFreeHours * 0.8 {
-                            Text("免費額度快用完了。").font(.footnote).foregroundColor(.orange)
-                        }
-                    }
-                }
+                row("目前估計費用", Self.usd(azure))
+            } header: { Text("Azure 語音") } footer: {
+                Text("計費標準：照送出的聲音時間計費，即時轉錄加說話者標籤每小時約 \(Self.usd(log.prices.azurePerHour))。"
+                     + (log.prices.azureFreeTier ? "免費方案（F0）每月前 \(Int(UsageLog.azureFreeHours)) 小時免費，超過的部分才算錢。" : ""))
             }
 
-            Section("Claude AI 校稿") {
+            Section {
                 row("請求次數", "\(day.claudeRequests) 次")
                 if day.claudeFailures > 0 { row("失敗次數", "\(day.claudeFailures) 次") }
                 ForEach(day.claude.keys.sorted(), id: \.self) { model in
@@ -57,7 +46,9 @@ struct UsageView: View {
                         }
                     }
                 }
-                row("估計費用", Self.usd(claude))
+                row("目前估計費用", Self.usd(claude))
+            } header: { Text("Claude AI 校稿") } footer: {
+                Text("計費標準：照 token 計費，每百萬 token Opus 輸入 \(Self.usd(log.prices.opusInput))、輸出 \(Self.usd(log.prices.opusOutput))；Haiku 輸入 \(Self.usd(log.prices.haikuInput))、輸出 \(Self.usd(log.prices.haikuOutput))。")
             }
 
             Section {

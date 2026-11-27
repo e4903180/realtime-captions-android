@@ -50,6 +50,8 @@ final class CaptionViewModel: ObservableObject {
     private var offline: OfflineEngine?
     private var engine: CaptionEngine?
     private let audio = AudioCapture()
+    /// Saves this start…stop as a transcript (ADR-029).
+    private var recorder: TranscriptRecorder?
 
     func toggle() {
         if running { stop() } else { Task { await start() } }
@@ -92,6 +94,7 @@ final class CaptionViewModel: ObservableObject {
             pausedForKey = nil
             proofreadNotice = nil
             finalsSeen = 0
+            recorder = TranscriptStore.isEnabled ? TranscriptRecorder(engine: EngineInfo.byId(engineId).name, existing: lines) : nil
             try engine.begin(onEvents: Self.eventHandler(model: self))
             try audio.start(onSamples: Self.audioHandler(engine: engine, model: self))
             self.engine = engine
@@ -117,6 +120,7 @@ final class CaptionViewModel: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
         engine?.finish(onEvents: Self.eventHandler(model: self))
         engine = nil
+        recorder?.finish()
         scheduleProofreading()
     }
 
@@ -269,7 +273,11 @@ final class CaptionViewModel: ObservableObject {
         let newLines = state.lines.enumerated().map { i, line in
             Line(id: assembler.lineId(index: Int32(i)), text: line.text, speaker: IosBridgeKt.speakerLabelOf(line: line))
         }
-        if newLines != lines { lines = newLines }
+        if newLines != lines {
+            lines = newLines
+            // Keeps following corrections after stop, until the next start.
+            recorder?.update(newLines, recording: running)
+        }
         stableText = state.stableText
         tentativeText = state.tentativeText
         currentSpeaker = IosBridgeKt.currentSpeakerLabelOf(state: state)

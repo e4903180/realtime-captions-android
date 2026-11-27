@@ -25,6 +25,7 @@ struct CaptionView: View {
     }
 
     @State private var showPicker = false
+    @State private var showTranscripts = false
     @AppStorage(Proofreader.enabledKey) private var proofreadOn = false
 
     var body: some View {
@@ -56,6 +57,7 @@ struct CaptionView: View {
         }
         .accessibilityLabel("辨識引擎：\(engine.name)，點一下更換")
         .sheet(isPresented: $showPicker) { EnginePickerView(model: model) }
+        .sheet(isPresented: $showTranscripts) { TranscriptsView() }
     }
 
     private var captions: some View {
@@ -164,6 +166,7 @@ struct CaptionView: View {
             Button("A−") { model.changeFontSize(by: -4) }.font(.system(size: 18))
             Button("A+") { model.changeFontSize(by: 4) }.font(.system(size: 22))
             Button("清除") { model.clear() }.font(.system(size: 18))
+            Button("紀錄") { showTranscripts = true }.font(.system(size: 18))
             Spacer()
             Button(action: model.toggle) {
                 Text(model.running ? "停止" : "開始")

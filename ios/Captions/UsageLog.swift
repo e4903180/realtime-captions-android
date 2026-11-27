@@ -156,8 +156,8 @@ final class UsageLog: ObservableObject {
 
     /// Editable prices: they change, and depend on the plan.
     struct Prices: Codable, Equatable {
-        /// Azure Speech real-time transcription, US$ per audio hour.
-        var azurePerHour = 1.0
+        /// Azure Speech real-time transcription with speaker tags (about 1.00 + 0.30), US$ per audio hour.
+        var azurePerHour = 1.3
         /// The key is on the free tier (F0): the first 5 hours each month cost nothing.
         var azureFreeTier = true
         /// US$ per million tokens.
