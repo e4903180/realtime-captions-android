@@ -24,13 +24,37 @@ struct CaptionView: View {
         _models = ObservedObject(wrappedValue: model.models)
     }
 
+    @State private var showPicker = false
+
     var body: some View {
         VStack(spacing: 0) {
+            topBar
             captions
             status
             controls
         }
         .background(Color.black.ignoresSafeArea())
+        .sheet(isPresented: Binding(
+            get: { model.showCloudSettings && !showPicker },
+            set: { model.showCloudSettings = $0 }
+        )) { CloudSettingsView() }
+    }
+
+    private var topBar: some View {
+        let engine = EngineInfo.byId(model.engineId)
+        return Button { showPicker = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: engine.offline ? "iphone" : "cloud")
+                Text(engine.name).font(.system(size: 17, weight: .semibold))
+                Image(systemName: "chevron.down").font(.system(size: 13))
+                Spacer()
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .accessibilityLabel("辨識引擎：\(engine.name)，點一下更換")
+        .sheet(isPresented: $showPicker) { EnginePickerView(model: model) }
     }
 
     private var captions: some View {
@@ -44,9 +68,10 @@ struct CaptionView: View {
                             .padding(.top, 24)
                     }
                     ForEach(model.lines) { line in
-                        lineView(line.text, speaker: line.speaker, current: false)
+                        let continued = model.continuesLastLine && line.id == model.lines.last?.id
+                        lineView(line.text, speaker: line.speaker, current: continued)
                     }
-                    if !model.stableText.isEmpty || !model.tentativeText.isEmpty {
+                    if !model.continuesLastLine && (!model.stableText.isEmpty || !model.tentativeText.isEmpty) {
                         lineView(nil, speaker: model.currentSpeaker, current: true)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -73,7 +98,11 @@ struct CaptionView: View {
             }
             Group {
                 if current {
-                    Text(model.stableText).foregroundColor(stableColor) + Text(model.tentativeText).foregroundColor(tentativeColor)
+                    // A continued line shows its finished text, then the utterance still being heard.
+                    let done = text.map { $0 + Self.joiner($0, model.stableText + model.tentativeText) } ?? ""
+                    Text(done).foregroundColor(.white)
+                        + Text(model.stableText).foregroundColor(stableColor)
+                        + Text(model.tentativeText).foregroundColor(tentativeColor)
                 } else {
                     Text(text ?? "").foregroundColor(.white)
                 }
@@ -82,6 +111,14 @@ struct CaptionView: View {
             .lineSpacing(size * 0.25)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Same joining rule as the shared CaptionAssembler: a comma between Chinese, a space between words.
+    static func joiner(_ a: String, _ b: String) -> String {
+        guard let x = a.last, let y = b.first else { return "" }
+        if !x.isASCII && !y.isASCII && x.isLetter && y.isLetter { return "，" }
+        if x.isASCII && y.isASCII && (x.isLetter || x.isNumber) && (y.isLetter || y.isNumber) { return " " }
+        return ""
     }
 
     private var status: some View {

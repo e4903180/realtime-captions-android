@@ -84,6 +84,12 @@ data class PipelineConfig(
      * nearby). Null turns the focus filter off. See [FocusTracker].
      */
     val focusMarginDb: Float? = 8f,
+    /**
+     * Keep up to this many seconds of each utterance's audio (from just before the first speech to
+     * the end) so a more accurate whole-sentence model can recognise it again after the line is
+     * finished (see [StreamingPipeline.takeUtteranceAudio], ADR-025). 0 keeps nothing.
+     */
+    val keepUtteranceAudioSec: Float = 0f,
 )
 
 /**
@@ -113,6 +119,11 @@ class StreamingPipeline(
     private var provisionalUnknown = false
     private val focus = config.focusMarginDb?.let { FocusTracker(marginDb = it) }
     private var started = false
+    private val utteranceAudio = if (config.keepUtteranceAudioSec > 0) SampleBuffer((config.keepUtteranceAudioSec * config.sampleRate).toInt()) else null
+    /** Audio just before speech starts, so the first syllable is not cut off. */
+    private val preroll = if (utteranceAudio != null) SampleBuffer(config.sampleRate * 3 / 10) else null
+    private var heardSpeech = false
+    private var finishedAudio: FloatArray? = null
 
     /** Seconds of audio consumed so far. */
     var audioTimeSec = 0.0
@@ -134,7 +145,17 @@ class StreamingPipeline(
         lineSec = 0f
         started = false
         audioTimeSec = 0.0
+        utteranceAudio?.clear()
+        preroll?.clear()
+        heardSpeech = false
+        finishedAudio = null
     }
+
+    /**
+     * Audio of the utterance that the last [TranscriptEvent.Final] finished, or null (none, already
+     * taken, or [PipelineConfig.keepUtteranceAudioSec] is 0). Take it right after the Final.
+     */
+    fun takeUtteranceAudio(): FloatArray? = finishedAudio.also { finishedAudio = null }
 
     fun feed(input: FloatArray): List<TranscriptEvent> {
         val out = ArrayList<TranscriptEvent>(3)
@@ -154,6 +175,14 @@ class StreamingPipeline(
             vad.isSpeech()
         } else {
             true
+        }
+        if (utteranceAudio != null) {
+            if (isSpeech && !heardSpeech) {
+                heardSpeech = true
+                utteranceAudio.append(preroll!!.toArray())
+                preroll.clear()
+            }
+            if (heardSpeech) utteranceAudio.append(chunk) else preroll!!.append(chunk)
         }
         if (isSpeech) {
             speech.append(chunk)
@@ -224,10 +253,13 @@ class StreamingPipeline(
                 else -> provisional ?: lastSpeaker
             }
             if (speaker != null) lastSpeaker = speaker
+            finishedAudio = utteranceAudio?.takeIf { it.size > 0 }?.toArray()
             TranscriptEvent.Final(text, speaker, background, speakerName = person?.name ?: provisionalName.takeIf { voice == null }, voice = voice)
         } else {
             null
         }
+        utteranceAudio?.clear()
+        heardSpeech = false
         asr.reset()
         speech.clear()
         lastText = ""

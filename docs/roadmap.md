@@ -19,6 +19,8 @@
 
 - iPhone 版第一步：`:core` 改成 Kotlin Multiplatform；SwiftUI App 骨架，sherpa-onnx 離線引擎、模型下載、台灣用語轉換；GitHub Actions macOS 建置與模擬器端對端測試（ADR-017、018，[ios/README.md](../ios/README.md)）
 
+- iPhone 版裝到實機；Azure 雲端引擎與引擎選單（ADR-023）；同一人短停頓接在同一行（ADR-024）；App 圖示
+
 - 引擎清單分「離線／雲端」，每個模型可下載或移除；雲端金鑰設定頁＋Azure 引擎（ADR-019）
 - 說話者門檻 1.0 秒（ADR-016）
 - 延遲加速：20 毫秒聲音區塊＋4 核心（ADR-021，[latency.md](latency.md)）
@@ -30,7 +32,7 @@
 
 ## 接下來
 
-- iPhone 版：使用者的 Mac 裝 Xcode，用免費 Apple ID 裝到 iPhone 實測（延遲、斷句、說話者、鎖屏收音）；之後把 Android 的引擎選單、Azure 等功能也做到 iPhone
+- iPhone 版：整段重新辨識與重新分人（說完後用整段聲音校正錯字和說話者）、移植認聲音（ADR-022）；接行在 iPhone 實測後決定 Android 是否也開
 
 - 「只顯示近處主要說話者」：用音量和聲紋過濾電視、背景人聲造成的假字幕
 - Azure 付費雲端選項（有說話者標籤）；自架伺服器（4070＋Breeze）給課程、演講用

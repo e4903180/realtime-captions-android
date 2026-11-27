@@ -30,6 +30,10 @@ get "$R/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common
 cd ios
 xcodegen generate
 
+# API surface of the vendored SDKs, printed so a compile error can be matched against it.
+grep -rh -E "Transcribing|resultReceivedHandler" Vendor/MicrosoftCognitiveServicesSpeech.xcframework/ios-arm64*/MicrosoftCognitiveServicesSpeech.framework/Headers/SPXConversationTranscriber.h 2>/dev/null | head -20 || true
+awk '/func sherpaOnnxOffline(ModelConfig|RecognizerConfig|SenseVoiceModelConfig|ParaformerModelConfig)\(/{p=1} p{print NR": "$0} /\) -> /{p=0}' Vendor/SherpaOnnx.swift | head -80 || true
+
 # Unsigned build for a real iPhone: checks that every library links for arm64 devices.
 xcodebuild build -project Captions.xcodeproj -scheme Captions -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath build/device \
@@ -38,5 +42,5 @@ xcodebuild build -project Captions.xcodeproj -scheme Captions -configuration Rel
 sim=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone[^(]*\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}')
 echo "Simulator: $sim"
 TEST_RUNNER_CAPTIONS_MODEL_DOWNLOADS="$models" xcodebuild test -project Captions.xcodeproj -scheme Captions \
-  -destination "id=$sim" -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/test.log | grep -E "test[0-9]\.wav|unpack:|Test Case|error:|warning: .*Captions/|\*\* TEST" || true
+  -destination "id=$sim" -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/test.log | grep -E "test[0-9]\.wav|unpack:|Azure with|Test Case|error:|warning: .*Captions/|\*\* TEST" || true
 grep -q "\*\* TEST SUCCEEDED \*\*" build/test.log

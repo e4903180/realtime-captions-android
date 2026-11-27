@@ -71,6 +71,10 @@ fun main(args: Array<String>) {
         System.err.println("wrote $o")
         return
     }
+    if ("--second-pass" in opts) {
+        secondPassBenchmark(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "docs/benchmark-second-pass.md"), quick = "--quick" in opts)
+        return
+    }
     if ("--focus-sweep" in opts) {
         focusSweep(modelsDir, File(opt("--noise") ?: "datasets/noise_bench"), File(opt("--out") ?: "docs/benchmark-focus.md"))
         return
@@ -204,6 +208,9 @@ fun runFile(
     /** Pretend compute is free (latency then shows model + buffering only). */
     noCompute: Boolean = false,
     registry: tw.captions.core.VoiceRegistry? = null,
+    /** Whole-sentence model that hears each finished line again (ADR-025); needs keepUtteranceAudioSec. */
+    secondPass: SherpaOfflineAsr? = null,
+    secondPassStats: SecondPassStats? = null,
 ): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
     val pipeline = stack.newPipeline(registry)
@@ -224,6 +231,20 @@ fun runFile(
                     uFirstPartial = at
                 }
                 is TranscriptEvent.Final -> if (e.background && stack.setup.hideBackground) Unit else {
+                    val audio = if (secondPass != null) pipeline.takeUtteranceAudio() else null
+                    if (audio != null) {
+                        val t0 = System.nanoTime()
+                        val again = secondPass!!.recognize(audio)
+                        secondPassStats?.seconds?.add((System.nanoTime() - t0) / 1e9)
+                        secondPassStats?.audioSeconds?.add(audio.size / 16000.0)
+                        val chosen = tw.captions.core.SecondPass.choose(e.text, again)
+                        if (chosen != null) {
+                            assembler.revise(assembler.lastFinalSeq, chosen)
+                            secondPassStats?.let { it.replaced++ }
+                        } else {
+                            secondPassStats?.let { it.kept++ }
+                        }
+                    }
                     val line = assembler.state.lines.lastOrNull()?.text ?: e.text
                     utterances += Utterance(
                         line, e.speaker?.index,

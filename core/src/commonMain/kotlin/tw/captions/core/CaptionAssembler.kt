@@ -38,6 +38,11 @@ data class CaptionState(
     val audioLevel: Float = 0f,
     /** Gentle hint shown when nothing has been heard for a while, e.g. a muted microphone. */
     val hint: String? = null,
+    /**
+     * The current utterance continues the last finished line (same speaker, short pause), so the
+     * screen shows it on that line instead of starting a new one. See [CaptionAssembler.mergeGapSec].
+     */
+    val continuesLastLine: Boolean = false,
 )
 
 /**
@@ -52,6 +57,17 @@ class CaptionAssembler(
     private val silentRoundsBeforeHint: Int = 3,
     /** What to do with lines the focus filter marks as background (TV, other tables). */
     var backgroundMode: BackgroundMode = BackgroundMode.OFF,
+    /**
+     * One person talking with short breaths otherwise gets a new line every 0.4 s pause (the
+     * recognizer ends lines quickly so that a change of speaker shows at once). When set, a line
+     * that starts within this many seconds after the previous one, from the same speaker, is
+     * joined to it. Null keeps one line per utterance.
+     */
+    private val mergeGapSec: Double? = null,
+    /** Joined lines stop growing at this length; the next utterance starts a new line. */
+    private val maxMergedChars: Int = 80,
+    /** Seconds on a monotonic clock; replaceable in tests. */
+    private val clockSec: () -> Double = defaultClock(),
 ) {
     companion object {
         const val NO_SPEECH_HINT = "沒有聽到說話聲，請確認麥克風有開，或靠近一點說話"
@@ -62,11 +78,50 @@ class CaptionAssembler(
 
     private var lastPartial = ""
     private var silentRounds = 0
+    private var lastFinalAt: Double? = null
+    private var utteranceStartAt: Double? = null
+
+    /** Utterances that make up each line in [CaptionState.lines] (same order), so one can be corrected later. */
+    private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>)
+    private val parts = ArrayList<LineParts>()
+    private var nextLineId = 0L
+    private var finals = 0
+
+    /**
+     * Number of the last [TranscriptEvent.Final] handled (counting from 0), for [revise]. Each Final
+     * gets a number, also ones that are hidden or empty.
+     */
+    val lastFinalSeq: Int get() = finals - 1
+
+    /** Stable id of the line at [index] (indexes shift when old lines are dropped), or -1. */
+    fun lineId(index: Int): Long = parts.getOrNull(index)?.id ?: -1
 
     fun reset() {
         state = CaptionState()
+        parts.clear()
+        finals = 0
         lastPartial = ""
         silentRounds = 0
+        lastFinalAt = null
+        utteranceStartAt = null
+    }
+
+    /** Whether an utterance by [speaker] that started at [startAt] should join the last line. */
+    private fun joinsLastLine(speaker: SpeakerId?, background: Boolean, startAt: Double?, finalSpeakerKnown: Boolean): Boolean {
+        val gap = mergeGapSec ?: return false
+        val last = state.lines.lastOrNull() ?: return false
+        val since = lastFinalAt ?: return false
+        if (startAt == null || startAt - since > gap) return false
+        if (background || last.background || last.text.length >= maxMergedChars) return false
+        // While the line is in progress its speaker may not be known yet; at the end it must match.
+        return if (speaker == null) !finalSpeakerKnown || last.speaker == null else speaker == last.speaker
+    }
+
+    private fun join(a: String, b: String): String {
+        if (a.isEmpty()) return b
+        val end = a.last()
+        val needsComma = end.isCjk() && b.firstOrNull()?.isCjk() == true
+        return if (needsComma) "$a，$b" else if (end.isLetterOrDigit() && b.firstOrNull()?.isLetterOrDigit() == true) "$a $b" else a + b
     }
 
     fun onEvent(event: TranscriptEvent): CaptionState {
@@ -84,8 +139,10 @@ class CaptionAssembler(
                 silentRounds = 0
                 val text = processor.process(event.text)
                 val stableLen = if (lastPartial.isEmpty()) 0 else commonPrefixLength(lastPartial, text)
+                if (lastPartial.isEmpty() && utteranceStartAt == null) utteranceStartAt = clockSec()
                 lastPartial = text
                 state.copy(
+                    continuesLastLine = joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false),
                     hint = null,
                     currentSpeaker = event.speaker,
                     currentSpeakerName = event.speakerName,
@@ -100,12 +157,30 @@ class CaptionAssembler(
                 silentRounds = 0
                 val text = processor.process(event.text)
                 lastPartial = ""
-                val lines = if (text.isBlank() || (event.background && backgroundMode == BackgroundMode.HIDE)) {
-                    state.lines
-                } else {
-                    (state.lines + CaptionLine(text, event.speaker, event.background && backgroundMode == BackgroundMode.DIM, event.speakerName, event.voice)).takeLast(maxLines)
+                val now = clockSec()
+                val startAt = utteranceStartAt ?: now
+                utteranceStartAt = null
+                val hidden = text.isBlank() || (event.background && backgroundMode == BackgroundMode.HIDE)
+                val seq = finals++
+                val lines = when {
+                    hidden -> state.lines
+                    joinsLastLine(event.speaker, event.background, startAt, finalSpeakerKnown = true) -> {
+                        val last = state.lines.last()
+                        parts.last().parts += seq to text
+                        state.lines.dropLast(1) + last.copy(
+                            text = join(last.text, text),
+                            speakerName = last.speakerName ?: event.speakerName,
+                            voice = event.voice ?: last.voice,
+                        )
+                    }
+                    else -> {
+                        parts += LineParts(nextLineId++, mutableListOf(seq to text))
+                        while (parts.size > maxLines) parts.removeAt(0)
+                        (state.lines + CaptionLine(text, event.speaker, event.background && backgroundMode == BackgroundMode.DIM, event.speakerName, event.voice)).takeLast(maxLines)
+                    }
                 }
-                state.copy(hint = null, lines = lines, currentSpeaker = null, currentSpeakerName = null, currentBackground = false, stableText = "", tentativeText = "", error = null)
+                if (!hidden) lastFinalAt = now
+                state.copy(hint = null, lines = lines, currentSpeaker = null, currentSpeakerName = null, currentBackground = false, stableText = "", tentativeText = "", continuesLastLine = false, error = null)
             }
 
             is TranscriptEvent.Error -> state.copy(
@@ -113,6 +188,36 @@ class CaptionAssembler(
                 isListening = event.recoverable && state.isListening,
             )
         }
+        return state
+    }
+
+    /**
+     * Replaces the text of utterance [seq] (see [lastFinalSeq]) with [text], e.g. from a second,
+     * more accurate pass over the same audio. The line keeps its speaker; an utterance whose line
+     * is gone, or that a [replaceLineText] already covered, is left alone.
+     */
+    fun revise(seq: Int, text: String): CaptionState {
+        val processed = processor.process(text)
+        if (processed.isBlank()) return state
+        val index = parts.indexOfFirst { p -> p.parts.any { it.first == seq } }
+        if (index < 0) return state
+        val line = parts[index]
+        val at = line.parts.indexOfFirst { it.first == seq }
+        line.parts[at] = seq to processed
+        return setLineText(index, line.parts.map { it.second }.reduce(::join))
+    }
+
+    /** Replaces a whole line's text, e.g. after proof-reading. Later [revise] calls for its utterances are ignored. */
+    fun replaceLineText(lineId: Long, text: String): CaptionState {
+        val index = parts.indexOfFirst { it.id == lineId }
+        if (index < 0 || text.isBlank()) return state
+        parts[index] = LineParts(lineId, mutableListOf(-1 to text))
+        return setLineText(index, text)
+    }
+
+    private fun setLineText(index: Int, text: String): CaptionState {
+        if (state.lines[index].text == text) return state
+        state = state.copy(lines = state.lines.mapIndexed { i, l -> if (i == index) l.copy(text = text) else l })
         return state
     }
 
@@ -129,4 +234,9 @@ class CaptionAssembler(
         while (i < n && a[i] == b[i]) i++
         return i
     }
+}
+
+private fun defaultClock(): () -> Double {
+    val start = kotlin.time.TimeSource.Monotonic.markNow()
+    return { start.elapsedNow().inWholeMilliseconds / 1000.0 }
 }

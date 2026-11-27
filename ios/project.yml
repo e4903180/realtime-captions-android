@@ -31,6 +31,9 @@ targets:
         embed: false
       - framework: Vendor/onnxruntime.xcframework
         embed: false
+      # Azure Speech SDK (dynamic framework, so it is embedded in the app)
+      - framework: Vendor/MicrosoftCognitiveServicesSpeech.xcframework
+        embed: true
       - sdk: libbz2.tbd
       - sdk: libc++.tbd
       - sdk: AVFoundation.framework
@@ -41,6 +44,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(CAPTIONS_BUNDLE_ID)
         PRODUCT_NAME: Captions
         INFOPLIST_FILE: Captions/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Captions/Captions-Bridging-Header.h
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
