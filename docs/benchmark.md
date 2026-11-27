@@ -32,7 +32,7 @@ All candidates are mainland- or mixed-trained; none was trained specifically on 
 ### Why this combination
 
 - **Accuracy:** both X-ASR variants reach 1.4–1.7% Chinese character errors on this set, clean and in babble/café noise down to 5 dB, and ~0–1% English word errors. The 2023 bilingual zipformer is 3–4× worse (5.6–7.0% CER, 7–8% WER) and has no punctuation.
-- **Speed of first words:** 160 ms chunks show the first caption text after **0.83 s** (p50) vs 0.95 s for 480 ms. For a deaf reader following a conversation, earlier words matter more than the slightly later line end (0.62 s vs 0.59 s).
+- **Speed of first words:** 160 ms chunks show the first caption text after **0.83 s** (p50) vs 0.95 s for 480 ms. For someone reading the captions to follow a conversation, earlier words matter more than the slightly later line end (0.62 s vs 0.59 s).
 - **VAD threshold 0.65 vs 0.5:** same accuracy on clean speech, but in noise fewer wrong line breaks and turn merges: CER at 5 dB 1.4% vs 1.7%, speaker tags in noise **98.0% vs 94.0%**.
 - **VAD-based line ends are essential for speaker tags:** without them the recognizer's own end-of-utterance rule waits too long, consecutive turns merge into one line, and speaker accuracy falls to 52–59% (final latency 1.6 s p50, 5 s p90).
 - **Speaker model and threshold:** CAM++ and ERes2Net give the same accuracy here; CAM++ is smaller (28 vs 40 MB) and covers English. Threshold 0.5 is the sweet spot: 0.35–0.45 merges different people (73–93%), 0.65 starts splitting one person into two (97.7%).
