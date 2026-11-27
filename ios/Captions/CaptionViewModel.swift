@@ -1,3 +1,4 @@
+import Combine
 import CaptionsCore
 import SwiftUI
 import UIKit
@@ -50,6 +51,17 @@ final class CaptionViewModel: ObservableObject {
     private var offline: OfflineEngine?
     private var engine: CaptionEngine?
     private let audio = AudioCapture()
+    /// The monthly cloud limit was passed (ADR-030): the view asks whether to keep using the cloud.
+    @Published var budgetAlert: String?
+    /// This session runs offline because of the limit, although the chosen engine is a cloud one.
+    @Published private(set) var budgetFallback = false
+    /// The user chose to keep using the cloud this session.
+    private var budgetOverride = false
+    /// Asked once per session.
+    private var budgetAsked = false
+    private var usageWatch: AnyCancellable?
+    private var budgetBlocked: Bool { UsageLog.shared.overLimit && !budgetOverride }
+
     /// Saves this start…stop as a transcript (ADR-029).
     private var recorder: TranscriptRecorder?
 
@@ -60,6 +72,11 @@ final class CaptionViewModel: ObservableObject {
     func start() async {
         guard !running, !preparing else { return }
         error = nil
+        if usageWatch == nil {
+            usageWatch = UsageLog.shared.$days.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+                self?.checkBudget()
+            }
+        }
         preparing = true
         defer { preparing = false }
         guard await AudioCapture.requestPermission() else {
@@ -68,7 +85,14 @@ final class CaptionViewModel: ObservableObject {
         }
         do {
             let engine: CaptionEngine
-            if engineId == EngineInfo.azureId {
+            var useCloud = engineId == EngineInfo.azureId
+            if useCloud, budgetBlocked {
+                useCloud = false
+                budgetFallback = true
+                budgetAsked = true
+                budgetAlert = Self.budgetMessage(switched: true)
+            }
+            if useCloud {
                 guard let key = KeyVault.get(KeyVault.azureKey) else {
                     error = "請先在「雲端服務設定」填入 Azure 金鑰"
                     showCloudSettings = true
@@ -105,6 +129,46 @@ final class CaptionViewModel: ObservableObject {
         }
     }
 
+    /// Usage went up: past the limit, a cloud session moves to offline and proof-reading stops.
+    private func checkBudget() {
+        guard running, budgetBlocked, !budgetAsked else { return }
+        let onCloud = engineId == EngineInfo.azureId && !budgetFallback
+        guard onCloud || Proofreader.isActive else { return }
+        proofreadTimer?.cancel()
+        budgetAsked = true
+        if onCloud {
+            stop(keepBudgetChoice: true)
+            if models.isReady {
+                budgetFallback = true
+                Task { await start() }
+                budgetAlert = Self.budgetMessage(switched: true)
+            } else {
+                budgetAlert = Self.budgetMessage(switched: false)
+            }
+        } else {
+            budgetAlert = Self.budgetMessage(switched: false)
+        }
+    }
+
+    private static func budgetMessage(switched: Bool) -> String {
+        let log = UsageLog.shared
+        let head = "本月雲端估計費用 \(UsageView.usd(log.monthCost))，已超過上限 \(UsageView.usd(log.monthlyLimit))。"
+        return head + (switched ? "這次已改用離線辨識，AI 校稿暫停。" : "已暫停雲端辨識和 AI 校稿。")
+    }
+
+    /// From the limit alert: keep using the cloud for the rest of this session.
+    func continueWithCloud() {
+        budgetAlert = nil
+        budgetOverride = true
+        if budgetFallback || (!running && engineId == EngineInfo.azureId) {
+            stop(keepBudgetChoice: true)
+            budgetFallback = false
+            Task { await start() }
+        } else {
+            scheduleProofreading()
+        }
+    }
+
     func selectEngine(_ id: String) {
         if running { stop() }
         engineId = id
@@ -113,7 +177,16 @@ final class CaptionViewModel: ObservableObject {
     }
 
     func stop() {
+        stop(keepBudgetChoice: false)
+    }
+
+    private func stop(keepBudgetChoice: Bool) {
         guard running else { return }
+        if !keepBudgetChoice {
+            budgetOverride = false
+            budgetFallback = false
+            budgetAsked = false
+        }
         audio.stop()
         running = false
         level = 0
@@ -175,7 +248,7 @@ final class CaptionViewModel: ObservableObject {
 
     /// Waits for a short pause in the conversation, then proof-reads the lines not yet checked.
     private func scheduleProofreading() {
-        guard Proofreader.isActive, !proofreading else { return }
+        guard Proofreader.isActive, !proofreading, !budgetBlocked else { return }
         if let paused = pausedForKey {
             guard KeyVault.get(KeyVault.anthropicKey) != paused else { return }
             pausedForKey = nil   // a new key was saved: try again
@@ -205,7 +278,7 @@ final class CaptionViewModel: ObservableObject {
     }
 
     private func proofreadNow() async {
-        guard Proofreader.isActive, !proofreading, let key = KeyVault.get(KeyVault.anthropicKey), key != pausedForKey else { return }
+        guard Proofreader.isActive, !proofreading, !budgetBlocked, let key = KeyVault.get(KeyVault.anthropicKey), key != pausedForKey else { return }
         // The last line may still grow while someone is talking; leave it for the next round.
         let candidates = lines.enumerated().filter { i, l in
             reviewed[l.id] != l.text && !(i == lines.count - 1 && (continuesLastLine || running && !(stableText + tentativeText).isEmpty))

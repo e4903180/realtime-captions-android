@@ -40,6 +40,15 @@ struct CaptionView: View {
             get: { model.showCloudSettings && !showPicker },
             set: { model.showCloudSettings = $0 }
         )) { CloudSettingsView() }
+        .alert("雲端用量已達上限", isPresented: Binding(
+            get: { model.budgetAlert != nil },
+            set: { if !$0 { model.budgetAlert = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+            Button("繼續用雲端") { model.continueWithCloud() }
+        } message: {
+            Text((model.budgetAlert ?? "") + "上限可以在「辨識引擎 > 雲端用量與費用」改。")
+        }
     }
 
     private var topBar: some View {
@@ -49,6 +58,9 @@ struct CaptionView: View {
                 Image(systemName: engine.offline ? "iphone" : "cloud")
                 Text(engine.name).font(.system(size: 17, weight: .semibold))
                 Image(systemName: "chevron.down").font(.system(size: 13))
+                if model.budgetFallback {
+                    Text("已改用離線（雲端達上限）").font(.system(size: 14)).foregroundColor(.orange)
+                }
                 Spacer()
             }
             .foregroundColor(.white)

@@ -48,6 +48,14 @@ final class UsageLog: ObservableObject {
     @Published var prices: Prices {
         didSet { prices.save() }
     }
+    /// Monthly limit for the estimated cloud cost in US$; 0 = no limit. When it is passed the
+    /// app moves to offline recognition for that session and asks first (ADR-030).
+    @Published var monthlyLimit: Double = UserDefaults.standard.double(forKey: "usage_limit") {
+        didSet { UserDefaults.standard.set(max(0, monthlyLimit), forKey: "usage_limit") }
+    }
+
+    var monthCost: Double { azureCost(.month) + claudeCost(total(.month)) }
+    var overLimit: Bool { monthlyLimit > 0 && monthCost >= monthlyLimit }
 
     private static let storageKey = "usage_days"
     private static let dayFormat: DateFormatter = {

@@ -52,6 +52,19 @@ struct UsageView: View {
             }
 
             Section {
+                Toggle("設定每月上限", isOn: Binding(
+                    get: { log.monthlyLimit > 0 },
+                    set: { log.monthlyLimit = $0 ? 5 : 0 }
+                ))
+                if log.monthlyLimit > 0 {
+                    price("每月上限（美元）", $log.monthlyLimit)
+                    row("本月已用", "\(Self.usd(log.monthCost)) / \(Self.usd(log.monthlyLimit))")
+                }
+            } header: { Text("用量上限") } footer: {
+                Text("本月估計費用（Azure＋AI 校稿）超過上限時會跳出提醒，這次收音改用離線辨識並暫停 AI 校稿；想繼續的話可以選「繼續用雲端」。每月 1 號重新計算。")
+            }
+
+            Section {
                 Toggle("Azure 金鑰是免費方案（F0）", isOn: $log.prices.azureFreeTier)
                 price("Azure 每小時", $log.prices.azurePerHour)
                 price("Opus 輸入（每百萬 token）", $log.prices.opusInput)
