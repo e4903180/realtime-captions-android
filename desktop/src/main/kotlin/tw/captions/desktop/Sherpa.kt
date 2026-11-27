@@ -207,3 +207,31 @@ internal class FloatArrayBuilder {
         end = 0
     }
 }
+
+/** Streaming speech-enhancement models from sherpa-onnx's speech-enhancement-models release. */
+enum class DenoiserModel(val label: String, val file: String) {
+    GTCRN("gtcrn", "gtcrn_simple.onnx"),
+    DPDFNET2("dpdfnet2", "dpdfnet2.onnx"),
+}
+
+class SherpaDenoiser(model: DenoiserModel, modelsDir: File, numThreads: Int = 1) : tw.captions.core.AudioEnhancer, AutoCloseable {
+    private val denoiser: com.k2fsa.sherpa.onnx.OnlineSpeechDenoiser
+
+    init {
+        val path = File(modelsDir, model.file).path
+        val m = com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserModelConfig.builder().setNumThreads(numThreads)
+        when (model) {
+            DenoiserModel.GTCRN -> m.setGtcrn(com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserGtcrnModelConfig.builder().setModel(path).build())
+            DenoiserModel.DPDFNET2 -> m.setDpdfnet(com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserDpdfNetModelConfig.builder().setModel(path).build())
+        }
+        denoiser = com.k2fsa.sherpa.onnx.OnlineSpeechDenoiser(
+            com.k2fsa.sherpa.onnx.OnlineSpeechDenoiserConfig.builder().setModel(m.build()).build(),
+        )
+    }
+
+    override fun process(samples: FloatArray): FloatArray = denoiser.run(samples, 16000).samples
+
+    override fun reset() = denoiser.reset()
+
+    override fun close() = denoiser.release()
+}

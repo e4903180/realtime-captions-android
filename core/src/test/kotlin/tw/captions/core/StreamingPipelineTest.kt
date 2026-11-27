@@ -108,6 +108,19 @@ class StreamingPipelineTest {
     }
 
     @Test
+    fun enhancerOutputIsWhatTheRecognizerHears() {
+        // An "enhancer" that silences everything: no captions, but the level meter still moves.
+        val mute = object : AudioEnhancer {
+            override fun process(samples: FloatArray) = FloatArray(samples.size)
+            override fun reset() {}
+        }
+        val p = StreamingPipeline(FakeAsr(), EnergyVad(), enhancer = mute)
+        val events = List(10) { 0.3f }.flatMap { p.feed(chunk(it)) } + p.flush()
+        assertTrue(events.none { it is TranscriptEvent.Partial || it is TranscriptEvent.Final })
+        assertTrue(events.filterIsInstance<TranscriptEvent.AudioLevel>().all { it.level > 0f })
+    }
+
+    @Test
     fun sampleBufferKeepsTheLatestSamples() {
         val b = SampleBuffer(4)
         b.append(floatArrayOf(1f, 2f, 3f))

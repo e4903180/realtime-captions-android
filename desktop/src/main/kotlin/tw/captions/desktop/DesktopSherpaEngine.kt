@@ -22,14 +22,16 @@ data class EngineSetup(
     val speakerThreshold: Float = 0.5f,
     val asrTrailingSilenceSec: Float = 0.8f,
     val vadMinSilenceSec: Float = 0.25f,
-    val vadThreshold: Float = 0.5f,
+    val vadThreshold: Float = 0.65f,
     val pipeline: PipelineConfig = PipelineConfig(),
     val numThreads: Int = 2,
+    val denoiser: DenoiserModel? = null,
 ) {
     val label: String
         get() = buildString {
             append(asrModel.name)
-            append(if (useVad) " + VAD" + (if (vadThreshold != 0.5f) " ${vadThreshold}" else "") else " (no VAD)")
+            denoiser?.let { append(" + ${it.label} denoiser") }
+            append(if (useVad) " + VAD ${vadThreshold}" else " (no VAD)")
             speakerModel?.let { append(" + ${it.name} @${speakerThreshold}") }
             pipeline.vadEndpointSilenceSec?.takeIf { useVad }?.let { append(", VAD end ${it}s") }
             append(", ASR end ${asrTrailingSilenceSec}s")
@@ -41,15 +43,17 @@ class SherpaStack(val setup: EngineSetup) : AutoCloseable {
     private val asr = SherpaAsr(setup.asrModel, setup.modelsDir, setup.numThreads, setup.asrTrailingSilenceSec)
     private val vad = if (setup.useVad) SherpaVad(setup.modelsDir, setup.vadMinSilenceSec, setup.vadThreshold) else null
     private val embedder = setup.speakerModel?.let { SherpaEmbedder(it, setup.modelsDir) }
+    private val denoiser = setup.denoiser?.let { SherpaDenoiser(it, setup.modelsDir) }
 
     /** A fresh pipeline (new speaker profiles) sharing the loaded models. */
     fun newPipeline(): StreamingPipeline =
-        StreamingPipeline(asr, vad, embedder, SpeakerClusterer(setup.speakerThreshold), setup.pipeline).also { it.reset() }
+        StreamingPipeline(asr, vad, embedder, SpeakerClusterer(setup.speakerThreshold), setup.pipeline, denoiser).also { it.reset() }
 
     override fun close() {
         asr.close()
         vad?.close()
         embedder?.close()
+        denoiser?.close()
     }
 }
 

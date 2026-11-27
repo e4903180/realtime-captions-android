@@ -59,7 +59,14 @@ class ModelStore(context: Context) {
             28_281_165,
             localName = "speaker.onnx",
         )
-        val ALL = listOf(ASR, VAD, SPEAKER)
+        /** GTCRN streaming speech enhancement (0.5 MB). */
+        val DENOISER = Remote(
+            "$RELEASES/speech-enhancement-models/gtcrn_simple.onnx",
+            "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+            535_638,
+            localName = "denoiser.onnx",
+        )
+        val ALL = listOf(ASR, VAD, SPEAKER, DENOISER)
         private const val TAG = "CaptionsModels"
     }
 

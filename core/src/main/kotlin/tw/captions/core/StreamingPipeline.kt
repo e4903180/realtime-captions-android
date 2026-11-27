@@ -28,6 +28,15 @@ interface VoiceActivityDetector {
     fun reset()
 }
 
+/**
+ * Speech enhancement / noise suppression applied before VAD, recognition and speaker embeddings
+ * (e.g. a sherpa-onnx GTCRN denoiser). Streaming: output may lag the input by a few frames.
+ */
+interface AudioEnhancer {
+    fun process(samples: FloatArray): FloatArray
+    fun reset()
+}
+
 /** Turns a stretch of speech into a speaker embedding (e.g. a 3D-Speaker CAM++ model). */
 fun interface SpeakerEmbedder {
     fun embed(samples: FloatArray): FloatArray
@@ -72,6 +81,7 @@ class StreamingPipeline(
     private val embedder: SpeakerEmbedder? = null,
     private val clusterer: SpeakerClusterer = SpeakerClusterer(),
     private val config: PipelineConfig = PipelineConfig(),
+    private val enhancer: AudioEnhancer? = null,
 ) {
     private val speech = SampleBuffer((config.maxSpeakerSec * config.sampleRate).toInt())
     private var lastText = ""
@@ -87,6 +97,7 @@ class StreamingPipeline(
         private set
 
     fun reset() {
+        enhancer?.reset()
         asr.reset()
         vad?.reset()
         clusterer.reset()
@@ -101,15 +112,18 @@ class StreamingPipeline(
         audioTimeSec = 0.0
     }
 
-    fun feed(chunk: FloatArray): List<TranscriptEvent> {
+    fun feed(input: FloatArray): List<TranscriptEvent> {
         val out = ArrayList<TranscriptEvent>(3)
         if (!started) {
             started = true
             out += TranscriptEvent.Listening
         }
+        audioTimeSec += input.size.toDouble() / config.sampleRate
+        // The level meter shows what the microphone hears, before any noise suppression.
+        out += TranscriptEvent.AudioLevel(levelOf(input))
+        val chunk = enhancer?.process(input) ?: input
+        if (chunk.isEmpty()) return out
         val chunkSec = chunk.size.toFloat() / config.sampleRate
-        audioTimeSec += chunkSec
-        out += TranscriptEvent.AudioLevel(levelOf(chunk))
 
         val isSpeech = if (vad != null) {
             vad.accept(chunk)

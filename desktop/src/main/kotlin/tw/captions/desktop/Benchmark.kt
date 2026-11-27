@@ -25,6 +25,10 @@ fun main(args: Array<String>) {
     val opts = args.toList()
     fun opt(name: String) = opts.indexOf(name).takeIf { it >= 0 }?.let { opts[it + 1] }
     val modelsDir = File(opt("--models") ?: System.getenv("SHERPA_MODELS") ?: error("pass --models <dir>"))
+    opt("--noise")?.let { dir ->
+        noiseBenchmark(modelsDir, File(dir), File(opt("--out") ?: "docs/benchmark-noise.md"))
+        return
+    }
     val realDir = opt("--real")?.let(::File)
     val testdata = realDir ?: File(opt("--testdata") ?: "testdata")
     val out = File(opt("--out") ?: if (realDir != null) "docs/benchmark-real.md" else "docs/benchmark.md")
@@ -35,10 +39,16 @@ fun main(args: Array<String>) {
     require(truths.isNotEmpty()) { "no test data in $testdata; run testdata/generate.ps1 first" }
     if (realDir != null) {
         val base = EngineSetup(modelsDir)
-        val setups = if (quick) listOf(base) else listOf(base, base.copy(asrModel = AsrModel.XASR_480), base.copy(speakerModel = SpeakerModel.ERES2NET_BASE))
-        val results = setups.map { setup ->
-            System.err.println("== ${setup.label} (${truths.size} real files)")
-            SherpaStack(setup).use { stack -> setup to truths.map { runFile(stack, it, testdata, realTime) } }
+        // Main configuration on everything; alternatives only on the Taiwan-accent set, which decides model choice.
+        val taiwan = truths.filter { it.language == "zh-TW" }
+        val runs = listOf(base to truths) + if (quick) emptyList() else listOf(
+            base.copy(asrModel = AsrModel.XASR_480) to taiwan,
+            base.copy(asrModel = AsrModel.BILINGUAL_2023) to taiwan,
+            base.copy(speakerModel = SpeakerModel.ERES2NET_BASE) to taiwan,
+        )
+        val results = runs.map { (setup, files) ->
+            System.err.println("== ${setup.label} (${files.size} real files)")
+            SherpaStack(setup).use { stack -> setup to files.map { runFile(stack, it, testdata, realTime) } }
         }
         out.parentFile.mkdirs()
         out.writeText(realReport(results, realTime))
@@ -56,7 +66,7 @@ fun main(args: Array<String>) {
         runs += base.copy(useVad = false) to clean
         runs += base.copy(pipeline = PipelineConfig(vadEndpointSilenceSec = null)) to clean
         runs += base.copy(pipeline = PipelineConfig(vadEndpointSilenceSec = 0.3f)) to truths
-        runs += base.copy(vadThreshold = 0.65f) to truths
+        runs += base.copy(vadThreshold = 0.5f) to truths
         runs += base.copy(speakerModel = SpeakerModel.ERES2NET_BASE) to truths
         for (t in listOf(0.35f, 0.45f, 0.55f, 0.65f)) runs += base.copy(speakerThreshold = t) to truths
     }
@@ -104,6 +114,9 @@ data class FileResult(
     val captionText: String,
     val errors: Int,
     val refTokens: Int,
+    /** Errors and reference size after dropping filler sounds (嗯, 啊, 呃 ...) from both sides. */
+    val errorsNoFiller: Int,
+    val refNoFiller: Int,
     val firstPartialLatency: List<Double>,
     val finalLatency: List<Double>,
     val speakerAcc: Double,
@@ -172,23 +185,29 @@ fun runFile(stack: SherpaStack, truth: Truth, testdata: File, realTime: Boolean)
     val ref = truth.segments.flatMap { scoringTokens(OpenCcTaiwan.toTraditional(it.text)) }
     val hypText = assembler.state.lines.joinToString(" ") { it.text }
     val hyp = scoringTokens(hypText)
+    val refNf = ref.filter { it !in FILLERS }
+    val hypNf = hyp.filter { it !in FILLERS }
 
     // Latency per truth segment, using the utterances that best match it.
     val bySeg = utterances.groupBy { matchSegment(it, truth.segments) }
     val ttfp = mutableListOf<Double>()
     val fin = mutableListOf<Double>()
-    for ((idx, s) in truth.segments.withIndex()) {
+    // A single whole-file segment (lectures without timestamps) has no meaningful per-turn latency.
+    if (truth.segments.size > 1) for ((idx, s) in truth.segments.withIndex()) {
         val us = bySeg[idx] ?: continue
         ttfp += us.minOf { it.firstPartialAt } - s.start
         fin += us.maxOf { it.finalAt } - s.end
     }
     return FileResult(
-        truth, utterances, hypText, editDistance(ref, hyp), ref.size, ttfp, fin,
-        speakerAccuracy(utterances, truth.segments),
+        truth, utterances, hypText, editDistance(ref, hyp), ref.size, editDistance(refNf, hypNf), refNf.size, ttfp, fin,
+        if (truth.segments.any { it.speaker == "?" }) Double.NaN else speakerAccuracy(utterances, truth.segments),
         utterances.mapNotNull { it.speaker }.distinct().size,
         busy / (audio.size / 16000.0),
     )
 }
+
+/** Filler sounds that captions (and subtitle editors) often drop; ignored by the "no fillers" CER. */
+val FILLERS = setOf("嗯", "啊", "呃", "欸", "誒", "喔", "哦", "唉", "哎", "噢", "呀", "啦", "嘛", "um", "uh")
 
 fun decodeAll(stack: SherpaStack, audio: FloatArray): String {
     val p = stack.newPipeline()
@@ -208,7 +227,9 @@ private fun f1(x: Double) = if (x.isNaN()) "–" else String.format(Locale.ROOT,
 private fun f2(x: Double) = if (x.isNaN()) "–" else String.format(Locale.ROOT, "%.2f", x)
 private fun pct(x: Double) = if (x.isNaN()) "–" else String.format(Locale.ROOT, "%.1f%%", 100 * x)
 
-private fun errRate(rs: List<FileResult>) = rs.sumOf { it.errors }.toDouble() / rs.sumOf { it.refTokens }.coerceAtLeast(1)
+private fun errRate(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN else rs.sumOf { it.errors }.toDouble() / rs.sumOf { it.refTokens }.coerceAtLeast(1)
+
+private fun errRateNoFiller(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN else rs.sumOf { it.errorsNoFiller }.toDouble() / rs.sumOf { it.refNoFiller }.coerceAtLeast(1)
 
 private fun speakerAcc(rs: List<FileResult>): Double {
     val w = rs.filter { !it.speakerAcc.isNaN() }
@@ -297,6 +318,15 @@ fun report(results: List<Pair<EngineSetup, List<FileResult>>>, extra: Map<AsrMod
 
 private fun datasetOf(t: Truth) = t.dialog.substringBefore('_')
 
+/** Taiwan-accent sets first: they decide model choice. */
+private val DATASETS = linkedMapOf(
+    "cvtw" to "Taiwan · Common Voice zh-TW (read)",
+    "yttw" to "Taiwan · YouTube CC talks (real-life)",
+    "ml2021" to "Taiwan · NTU ML lectures (real-life)",
+    "aishell1" to "Mainland · AISHELL-1 (read)",
+    "alimeeting" to "Mainland · AliMeeting (far-field meetings)",
+)
+
 /** Report for real recordings (AISHELL-1, AliMeeting). */
 fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boolean): String = buildString {
     appendLine("# Offline engine on real speech (sherpa-onnx)")
@@ -321,16 +351,18 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
     appendLine()
     appendLine("## Summary")
     appendLine()
-    appendLine("| Configuration | Dataset | Sessions | Minutes | CER | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker accuracy | Speakers found / true (avg) | RTF |")
-    appendLine("|---|---|---|---|---|---|---|---|---|---|")
+    appendLine("| Configuration | Dataset | Sessions | Minutes | CER | CER (no fillers) | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker accuracy | Speakers found / true (avg) | RTF |")
+    appendLine("|---|---|---|---|---|---|---|---|---|---|---|")
     for ((setup, rs) in results) {
-        for ((ds, group) in rs.groupBy { datasetOf(it.truth) }) {
+        val groups = rs.groupBy { datasetOf(it.truth) }
+        for (ds in DATASETS.keys.filter { it in groups } + groups.keys.filter { it !in DATASETS }) {
+            val group = groups.getValue(ds)
             val ttfp = group.flatMap { it.firstPartialLatency }
             val fin = group.flatMap { it.finalLatency }
             val found = group.map { it.speakers }.average()
-            val truthN = group.map { r -> r.truth.segments.map { it.speaker }.distinct().size }.average()
+            val truthN = group.map { r -> r.truth.segments.map { it.speaker }.filter { it != "?" }.distinct().size }.average()
             appendLine(
-                "| ${setup.label} | $ds | ${group.size} | ${f1(group.sumOf { it.truth.duration } / 60)} | ${pct(errRate(group))} | " +
+                "| ${setup.label} | ${DATASETS[ds] ?: ds} | ${group.size} | ${f1(group.sumOf { it.truth.duration } / 60)} | ${pct(errRate(group))} | ${pct(errRateNoFiller(group))} | " +
                     "${f2(percentile(ttfp, 50.0))} / ${f2(percentile(ttfp, 90.0))} | ${f2(percentile(fin, 50.0))} / ${f2(percentile(fin, 90.0))} | " +
                     "${pct(speakerAcc(group))} | ${f1(found)} / ${f1(truthN)} | ${f2(group.sumOf { it.rtf * it.truth.duration } / group.sumOf { it.truth.duration })} |",
             )
@@ -338,6 +370,18 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
     }
     appendLine()
     val (mainSetup, main) = results.first()
+    val meetings = main.filter { datasetOf(it.truth) == "alimeeting" }
+    if (meetings.isNotEmpty()) {
+        appendLine("## Overlapping speech (AliMeeting)")
+        appendLine()
+        appendLine("Turns where another person talks at the same time vs turns with one speaker. Each caption line is credited to the turn it overlaps most, " +
+            "so this is approximate; the engine has a single recognizer and cannot transcribe two people at once.")
+        appendLine()
+        appendLine("| Turns | Reference characters | CER |")
+        appendLine("|---|---|---|")
+        for ((k, v) in overlapBreakdown(meetings)) appendLine("| $k | ${v.second} | ${pct(v.first.toDouble() / v.second.coerceAtLeast(1))} |")
+        appendLine()
+    }
     appendLine("## Per session — ${mainSetup.label}")
     appendLine()
     appendLine("| Session | Minutes | CER | Speakers found / true | Speaker accuracy | First captions |")

@@ -21,6 +21,9 @@ class MetricsTest {
     fun convertsSimplifiedToTaiwanTraditional() {
         assertEquals("醫生你好，我這幾天一直咳嗽", OpenCcTaiwan.toTraditional("医生你好，我这几天一直咳嗽"))
         assertEquals("請問今天哪裡不舒服", OpenCcTaiwan.toTraditional("请问今天哪里不舒服"))
+        // Taiwan phrasing (OpenCC s2twp), not only character conversion.
+        assertEquals("軟體 影片 計程車 網路 資訊", OpenCcTaiwan.toTraditional("软件 视频 出租车 网络 信息"))
+        assertEquals("我想在家裡煮麵", OpenCcTaiwan.toTraditional("我想在家里煮面"))
     }
 
     private fun u(text: String, spk: Int?, start: Double, end: Double) = Utterance(text, spk, start, end, start, end)

@@ -6,7 +6,10 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Simplified → Traditional (Taiwan) using OpenCC data via opencc4j. */
+/**
+ * Simplified → Traditional with Taiwan phrasing, like OpenCC s2twp (软件→軟體, 视频→影片, 出租车→計程車),
+ * using opencc4j's Taiwan tables.
+ */
 object OpenCcTaiwan : ChineseScriptConverter {
     // opencc4j's Taiwan table still uses a few forms that are uncommon in Taiwan.
     private val taiwanForms = mapOf('裏' to '裡', '着' to '著', '麪' to '麵')

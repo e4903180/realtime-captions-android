@@ -6,7 +6,11 @@ import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserGtcrnModelConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OnlineSpeechDenoiser
+import com.k2fsa.sherpa.onnx.OnlineSpeechDenoiserConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
@@ -19,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import tw.captions.core.AudioEnhancer
 import tw.captions.core.RecognitionConfig
 import tw.captions.core.SpeakerClusterer
 import tw.captions.core.SpeakerEmbedder
@@ -38,6 +43,8 @@ class SherpaOnnxEngine(
     private val models: ModelStore,
     private val openInput: () -> AudioInput,
     private val speakerThreshold: Float = 0.5f,
+    /** Run the GTCRN speech-enhancement model before recognition (see docs/benchmark-noise.md). */
+    private val useDenoiser: Boolean = DENOISER_DEFAULT,
 ) : SpeechEngine {
     override val id = ID
     override val displayName = "離線＋說話者"
@@ -45,6 +52,9 @@ class SherpaOnnxEngine(
 
     companion object {
         const val ID = "sherpa-onnx"
+
+        /** Chosen from the Taiwan-accent noise benchmark (docs/benchmark-noise.md). */
+        const val DENOISER_DEFAULT = false
         private const val TAG = "CaptionsSherpa"
     }
 
@@ -56,16 +66,17 @@ class SherpaOnnxEngine(
         val asr = Asr(models)
         val vad = SileroVad(models)
         val embedder = Embedder(models)
+        val denoiser = if (useDenoiser) Denoiser(models) else null
         val input = try {
             openInput()
         } catch (e: Exception) {
             Log.e(TAG, "audio input failed", e)
-            asr.close(); vad.close(); embedder.close()
+            asr.close(); vad.close(); embedder.close(); denoiser?.close()
             emit(TranscriptEvent.Error("無法開啟麥克風", recoverable = false))
             return@flow
         }
         try {
-            val pipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold))
+            val pipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold), enhancer = denoiser)
             val chunk = FloatArray(SAMPLE_RATE / 10) // 100 ms
             while (currentCoroutineContext().isActive) {
                 val n = input.read(chunk)
@@ -82,6 +93,7 @@ class SherpaOnnxEngine(
             asr.close()
             vad.close()
             embedder.close()
+            denoiser?.close()
         }
     }.flowOn(Dispatchers.Default)
 
@@ -126,7 +138,7 @@ class SherpaOnnxEngine(
     }
 
     /** Frame-level Silero speech probability; the pipeline does its own smoothing. */
-    private class SileroVad(models: ModelStore, private val threshold: Float = 0.5f) : VoiceActivityDetector, AutoCloseable {
+    private class SileroVad(models: ModelStore, private val threshold: Float = 0.65f) : VoiceActivityDetector, AutoCloseable {
         private val vad = Vad(
             assetManager = null,
             config = VadModelConfig(
@@ -163,6 +175,22 @@ class SherpaOnnxEngine(
         }
 
         override fun close() = vad.release()
+    }
+
+    private class Denoiser(models: ModelStore) : AudioEnhancer, AutoCloseable {
+        private val denoiser = OnlineSpeechDenoiser(
+            assetManager = null,
+            config = OnlineSpeechDenoiserConfig(
+                model = OfflineSpeechDenoiserModelConfig(
+                    gtcrn = OfflineSpeechDenoiserGtcrnModelConfig(model = models.file("denoiser.onnx").path),
+                    numThreads = 1,
+                ),
+            ),
+        )
+
+        override fun process(samples: FloatArray): FloatArray = denoiser.run(samples, SAMPLE_RATE).samples
+        override fun reset() = denoiser.reset()
+        override fun close() = denoiser.release()
     }
 
     private class Embedder(models: ModelStore) : SpeakerEmbedder, AutoCloseable {
