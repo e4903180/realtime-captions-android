@@ -1,6 +1,6 @@
 # 即時字幕 (Real-time captions)
 
-An Android app that turns speech into live captions, so anyone can follow a conversation by reading it.
+An Android and iPhone app that turns speech into live captions, so anyone can follow a conversation by reading it.
 Mandarin (Traditional Chinese) comes first. English and Taiwanese come next.
 
 ## Design goals
@@ -14,8 +14,9 @@ Mandarin (Traditional Chinese) comes first. English and Taiwanese come next.
 
 | Module | What it holds |
 | --- | --- |
-| `core` | `SpeechEngine` interface, `CaptionAssembler` (partial/final results → caption state, stable/tentative split), `TextProcessor` (whitespace, full-width punctuation, correction dictionary, Simplified→Traditional hook), `StreamingPipeline` (streaming recognizer + VAD endpointing + speaker tags) and `SpeakerClusterer` (online speaker clustering) |
+| `core` | Kotlin Multiplatform (JVM for Android/desktop, iOS for the iPhone app). `SpeechEngine` interface, `CaptionAssembler` (partial/final results → caption state, stable/tentative split), `TextProcessor` (whitespace, full-width punctuation, correction dictionary, Simplified→Traditional hook), `StreamingPipeline` (streaming recognizer + VAD endpointing + speaker tags) and `SpeakerClusterer` (online speaker clustering) |
 | `app` | Android UI (Jetpack Compose) and engines: `AndroidSpeechEngine` (the phone's built-in recognizer, online or on-device) and `SherpaOnnxEngine` (fully offline, with speaker tags; models are downloaded on first use) |
+| `ios` | iPhone app (SwiftUI) using the same core and the same sherpa-onnx models; see [ios/README.md](ios/README.md) |
 | `desktop` | The same sherpa-onnx pipeline on the JVM, plus a benchmark that streams test wavs and writes [docs/benchmark.md](docs/benchmark.md) |
 | `testdata` | Synthetic multi-speaker dialogs (Windows TTS) with ground truth, and noisy variants |
 

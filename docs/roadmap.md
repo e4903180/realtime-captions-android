@@ -17,11 +17,15 @@
 
 - 台灣腔真實語音、噪音驗證、Whisper／Breeze（自己的 4070）、Google Chirp 3／V1、Azure 對照（benchmark-real／noise／engines.md，ADR-014、015）
 
+- iPhone 版第一步：`:core` 改成 Kotlin Multiplatform；SwiftUI App 骨架，sherpa-onnx 離線引擎、模型下載、台灣用語轉換；GitHub Actions macOS 建置與模擬器端對端測試（ADR-016、017，[ios/README.md](../ios/README.md)）
+
 ## 進行中
 
 - 說話者門檻取捨（短句多長才可以建立新的說話者：0.6／1.0／1.5 秒）
 
 ## 接下來
+
+- iPhone 版：使用者的 Mac 裝 Xcode，用免費 Apple ID 裝到 iPhone 實測（延遲、斷句、說話者、鎖屏收音）；之後把 Android 的引擎選單、Azure 等功能也做到 iPhone
 
 - 引擎清單：每個引擎有副標題（速度、準確度、離線／連線、費用）；離線模型只下載使用者選的，預設一組，全部可以卸載
 - 「只顯示近處主要說話者」：用音量和聲紋過濾電視、背景人聲造成的假字幕

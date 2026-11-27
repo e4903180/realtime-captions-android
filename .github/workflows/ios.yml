@@ -1,0 +1,39 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle/**"]
+  pull_request:
+    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle/**"]
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.konan
+            ios/Vendor/.downloads
+            ${{ runner.temp }}/models
+          key: ios-deps-${{ hashFiles('ios/scripts/fetch-deps.sh', 'ios/scripts/ci-test.sh', 'settings.gradle.kts') }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build and test (core on iOS, app build, simulator tests)
+        env:
+          CAPTIONS_MODEL_DOWNLOADS: ${{ runner.temp }}/models
+        run: ios/scripts/ci-test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-test-log
+          path: ios/build/test.log
+          if-no-files-found: ignore

@@ -24,13 +24,10 @@ class TextProcessor(private val steps: List<TextStep>) {
     }
 }
 
-internal fun Char.isCjk(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.BOPOMOFO
-}
+// Same ranges as the Unicode blocks CJK Unified Ideographs, Extension A, CJK Compatibility
+// Ideographs and Bopomofo. Written as ranges because java.lang.Character.UnicodeBlock is JVM-only.
+internal fun Char.isCjk(): Boolean =
+    this in '\u4E00'..'\u9FFF' || this in '\u3400'..'\u4DBF' || this in '\uF900'..'\uFAFF' || this in '\u3100'..'\u312F'
 
 /**
  * Removes the spaces some engines put between Chinese characters ("今 天 好" -> "今天好"),
