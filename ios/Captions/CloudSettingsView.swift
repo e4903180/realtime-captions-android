@@ -79,6 +79,7 @@ struct CloudSettingsView: View {
 /// Engine list: one line of explanation per engine.
 struct EnginePickerView: View {
     @ObservedObject var model: CaptionViewModel
+    @AppStorage("appearance") private var appearance = "system"
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -88,6 +89,27 @@ struct EnginePickerView: View {
                 Section("雲端") {
                     rows(EngineInfo.all.filter { !$0.offline })
                     Button("雲端服務設定（金鑰）") { model.showCloudSettings = true }
+                    NavigationLink("雲端用量與費用") { UsageView() }
+                }
+                Section {
+                    Toggle("說話者辨識", isOn: $model.speakersOn)
+                    if model.speakersOn {
+                        Picker("說話人數", selection: $model.speakerCount) {
+                            Text("自動").tag(0)
+                            ForEach(2...6, id: \.self) { Text("\($0) 人").tag($0) }
+                        }
+                    }
+                } header: { Text("說話者") } footer: {
+                    Text(model.speakersOn
+                         ? "分出不同的人，標 A、B、C。知道有幾個人在講話時選人數，離線分人會比較準。"
+                         : "不分人、不顯示標籤，只照停頓換行；離線時比較省電。")
+                }
+                Section("外觀") {
+                    Picker("背景", selection: $appearance) {
+                        Text("跟隨系統").tag("system")
+                        Text("深色").tag("dark")
+                        Text("淺色").tag("light")
+                    }
                 }
                 Section("文字校正") {
                     NavigationLink("整句重聽、AI 校稿") { CorrectionSettingsView(store: model.secondPassStore) }
