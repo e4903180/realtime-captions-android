@@ -41,6 +41,40 @@ fun main(args: Array<String>) {
         File(opt("--out") ?: "build/report/xasr.json").writeText(arr.toString(1), Charsets.UTF_8)
         return
     }
+    if ("--voice-sweep" in opts) {
+        voiceSweep(modelsDir, File(opt("--noise") ?: "datasets/noise_bench"), File(opt("--out") ?: "docs/benchmark-voices.md"))
+        return
+    }
+    if ("--latency-breakdown" in opts) {
+        latencyBreakdown(modelsDir, File(opt("--out") ?: "docs/latency.md"))
+        return
+    }
+    if ("--hotwords-sweep" in opts) {
+        // Taiwan word list as hotwords (modified beam search) vs greedy and plain beam search.
+        val dir = File(opt("--real") ?: "datasets/prepared")
+        val files = loadTruths(dir).filter { it.language == "zh-TW" }
+        val base = EngineSetup(modelsDir)
+        val list = File(opt("--hotwords") ?: "testdata/hotwords/taiwan.txt")
+        val setups = listOf(base, base.copy(beamSearch = true), base.copy(hotwords = list))
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(setups.size)
+        val results = setups.map { s -> pool.submit<Pair<EngineSetup, List<FileResult>>> { SherpaStack(s).use { st -> s to files.map { runFile(st, it, dir, false) } } } }.map { it.get() }
+        pool.shutdown()
+        val o = File(opt("--out") ?: "build/hotwords.md")
+        o.writeText(buildString {
+            appendLine("| Decoding | Dataset | CER | CER (no fillers) | RTF |")
+            appendLine("|---|---|---|---|---|")
+            for ((s, rs) in results) for ((ds, g) in rs.groupBy { datasetOf(it.truth) }) {
+                val name = when { s.hotwords != null -> "beam search + Taiwan hotwords (${list.readLines().count { it.isNotBlank() }} words)"; s.beamSearch -> "beam search"; else -> "greedy (default)" }
+                appendLine("| $name | ${DATASETS[ds] ?: ds} | ${pct(errRate(g))} | ${pct(errRateNoFiller(g))} | ${f2(g.sumOf { it.rtf * it.truth.duration } / g.sumOf { it.truth.duration })} |")
+            }
+        })
+        System.err.println("wrote $o")
+        return
+    }
+    if ("--focus-sweep" in opts) {
+        focusSweep(modelsDir, File(opt("--noise") ?: "datasets/noise_bench"), File(opt("--out") ?: "docs/benchmark-focus.md"))
+        return
+    }
     opt("--noise")?.let { dir ->
         noiseBenchmark(modelsDir, File(dir), File(opt("--out") ?: "docs/benchmark-noise.md"), quick = "--quick" in opts)
         return
@@ -160,11 +194,20 @@ data class FileResult(
     val rtf: Double,
 )
 
-fun runFile(stack: SherpaStack, truth: Truth, testdata: File, realTime: Boolean): FileResult {
+fun runFile(
+    stack: SherpaStack,
+    truth: Truth,
+    testdata: File,
+    realTime: Boolean,
+    /** Audio chunk handed to the engine at a time (1600 = 100 ms). */
+    chunk: Int = 1600,
+    /** Pretend compute is free (latency then shows model + buffering only). */
+    noCompute: Boolean = false,
+    registry: tw.captions.core.VoiceRegistry? = null,
+): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
-    val pipeline = stack.newPipeline()
-    val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
-    val chunk = 1600
+    val pipeline = stack.newPipeline(registry)
+    val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan), backgroundMode = if (stack.setup.hideBackground) tw.captions.core.BackgroundMode.HIDE else tw.captions.core.BackgroundMode.OFF)
     var wall = 0.0
     var busy = 0.0
     val utterances = mutableListOf<Utterance>()
@@ -180,7 +223,7 @@ fun runFile(stack: SherpaStack, truth: Truth, testdata: File, realTime: Boolean)
                     uStartAudio = audioTime
                     uFirstPartial = at
                 }
-                is TranscriptEvent.Final -> {
+                is TranscriptEvent.Final -> if (e.background && stack.setup.hideBackground) Unit else {
                     val line = assembler.state.lines.lastOrNull()?.text ?: e.text
                     utterances += Utterance(
                         line, e.speaker?.index,
@@ -209,7 +252,7 @@ fun runFile(stack: SherpaStack, truth: Truth, testdata: File, realTime: Boolean)
         val events = pipeline.feed(piece)
         val proc = (System.nanoTime() - t0) / 1e9
         busy += proc
-        wall = maxOf(wall, arrival) + proc
+        wall = maxOf(wall, arrival) + if (noCompute) 0.0 else proc
         handle(events, arrival, wall)
     }
     val t0 = System.nanoTime()

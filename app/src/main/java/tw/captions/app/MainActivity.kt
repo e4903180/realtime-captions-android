@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
             var showEngines by remember { mutableStateOf(false) }
             var showSettings by remember { mutableStateOf(false) }
+            var showPeople by remember { mutableStateOf(false) }
             CaptionScreen(
                 ui = ui,
                 engines = viewModel.engines,
@@ -58,6 +59,9 @@ class MainActivity : ComponentActivity() {
                 onStop = viewModel::stop,
                 onOpenEngines = { showEngines = true },
                 onOpenSettings = { showSettings = true },
+                onToggleBackground = viewModel::toggleBackground,
+                onNameLine = viewModel::nameLine,
+                onOpenPeople = { showPeople = true },
                 onClear = viewModel::clear,
                 onFontSize = viewModel::changeFontSize,
             )
@@ -71,6 +75,9 @@ class MainActivity : ComponentActivity() {
                     onUninstall = viewModel::uninstall,
                     onOpenSettings = { showEngines = false; showSettings = true },
                 )
+            }
+            if (showPeople) {
+                tw.captions.app.ui.PeopleSheet(ui = ui, onDismiss = { showPeople = false }, onForget = viewModel::forgetPerson)
             }
             if (showSettings) {
                 CloudSettings(

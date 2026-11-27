@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import android.util.Log
 import java.io.File
-import tw.captions.app.engine.AndroidSpeechEngine
 import tw.captions.app.engine.AzureSpeechEngine
 import tw.captions.app.settings.KeyVault
 import tw.captions.app.engine.EngineCatalog
@@ -32,6 +31,10 @@ data class UiState(
     val running: Boolean = false,
     val engineId: String = EngineCatalog.DEFAULT_ID,
     val fontSizeSp: Int = 36,
+    /** People the app recognises (id to name), for the 認得的人 list. */
+    val people: List<Pair<Int, String>> = emptyList(),
+    /** Background-speech filter: off (default), dim, or hide. */
+    val backgroundMode: tw.captions.core.BackgroundMode = tw.captions.core.BackgroundMode.OFF,
     /** 0..1 while the offline models are downloading, otherwise null. */
     val modelDownload: Float? = null,
     /** Which engine the running download is for. */
@@ -40,6 +43,8 @@ data class UiState(
     val installedEngines: Set<String> = emptySet(),
     /** Disk space each installed offline engine would free if removed (bytes). */
     val freeableBytes: Map<String, Long> = emptyMap(),
+    /** What downloading each offline engine would still fetch (shared models already present are not counted). */
+    val downloadBytes: Map<String, Long> = emptyMap(),
     /** "••••1a2b" when an Azure key is stored. */
     val azureKeyHint: String? = null,
     val azureRegion: String = "eastasia",
@@ -58,11 +63,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Debug builds only: play this wav file instead of using the microphone (see README). */
     private var debugWav: File? = null
 
+    private val registry = tw.captions.core.VoiceRegistry()
+
     val engines: List<SpeechEngine> = listOf(
-        AndroidSpeechEngine(app, onDevice = false),
-        AndroidSpeechEngine(app, onDevice = true),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
@@ -91,13 +96,71 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
     init {
+        val mode = runCatching { tw.captions.core.BackgroundMode.valueOf(prefs.getString("background_mode", "OFF")!!) }.getOrDefault(tw.captions.core.BackgroundMode.OFF)
+        assembler.backgroundMode = mode
+        _ui.update { it.copy(backgroundMode = mode) }
         refreshInstalled()
         refreshKeys()
+        loadPeople()
+    }
+
+    // ---- 認聲音: people the user named ----
+
+    private fun loadPeople() {
+        val saved = runCatching {
+            val arr = org.json.JSONArray(prefs.getString("people", "[]"))
+            List(arr.length()) { i ->
+                val o = arr.getJSONObject(i)
+                val v = o.getJSONArray("voice")
+                tw.captions.core.VoiceRegistry.Person(o.getInt("id"), o.getString("name"), FloatArray(v.length()) { v.getDouble(it).toFloat() })
+            }
+        }.getOrDefault(emptyList())
+        registry.restore(saved)
+        _ui.update { it.copy(people = registry.people.map { p -> p.id to p.name }) }
+    }
+
+    private fun savePeople() {
+        val arr = org.json.JSONArray()
+        registry.people.forEach { p ->
+            arr.put(org.json.JSONObject().put("id", p.id).put("name", p.name).put("voice", org.json.JSONArray(p.profile.map { it.toDouble() })))
+        }
+        prefs.edit().putString("people", arr.toString()).apply()
+        _ui.update { it.copy(people = registry.people.map { p -> p.id to p.name }) }
+    }
+
+    /** "This line is <name>": learns the voice from that line. Voice profiles stay on the phone. */
+    fun nameLine(index: Int, name: String) {
+        val line = _ui.value.captions.lines.getOrNull(index) ?: return
+        val voice = line.voice ?: return
+        val first = registry.isEmpty
+        registry.add(name.trim(), voice)
+        savePeople()
+        _ui.update { it.copy(captions = assembler.nameLine(index, name.trim())) }
+        // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
+        if (first && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
+    }
+
+    fun forgetPerson(id: Int) {
+        registry.remove(id)
+        savePeople()
+    }
+
+    private fun setBackgroundMode(mode: tw.captions.core.BackgroundMode) {
+        assembler.backgroundMode = mode
+        prefs.edit().putString("background_mode", mode.name).apply()
+        _ui.update { it.copy(backgroundMode = mode) }
     }
 
     private fun refreshKeys() {
-        _ui.update { it.copy(azureKeyHint = vault.hint(KeyVault.AZURE_KEY), azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") }
+        _ui.update {
+            it.copy(
+                azureKeyHint = vault.hint(KeyVault.AZURE_KEY),
+                azureRegion = vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia",
+            )
+        }
     }
+
+
 
     fun saveAzure(key: String, region: String) {
         if (key.isNotEmpty()) vault.put(KeyVault.AZURE_KEY, key)
@@ -150,7 +213,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             val othersNeed = installed.filter { it !== e }.flatMap { it.packs }.toSet()
             e.id to e.packs.filter { it !in othersNeed }.sumOf { models.sizeOnDisk(it) }
         }
-        _ui.update { it.copy(installedEngines = installed.map { e -> e.id }.toSet(), freeableBytes = freeable) }
+        val toDownload = offlineEngines.associate { e -> e.id to e.packs.filter { !models.isInstalled(it) }.sumOf { it.downloadBytes } }
+        _ui.update { it.copy(installedEngines = installed.map { e -> e.id }.toSet(), freeableBytes = freeable, downloadBytes = toDownload) }
     }
 
     private var job: Job? = null
@@ -260,6 +324,15 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun clear() {
         assembler.reset()
         _ui.update { it.copy(captions = CaptionState(isListening = it.running)) }
+    }
+
+    /** Cycles the background filter: off → dim → hide → off. */
+    fun toggleBackground() {
+        val modes = tw.captions.core.BackgroundMode.entries
+        val mode = modes[(modes.indexOf(_ui.value.backgroundMode) + 1) % modes.size]
+        assembler.backgroundMode = mode
+        prefs.edit().putString("background_mode", mode.name).apply()
+        _ui.update { it.copy(backgroundMode = mode) }
     }
 
     fun changeFontSize(deltaSp: Int) {

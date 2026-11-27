@@ -25,6 +25,10 @@ data class EngineSetup(
     val vadThreshold: Float = 0.65f,
     val pipeline: PipelineConfig = PipelineConfig(),
     val numThreads: Int = 2,
+    /** Drop background lines (focus filter) instead of showing them dimmed. */
+    val hideBackground: Boolean = false,
+    val hotwords: File? = null,
+    val beamSearch: Boolean = false,
     val denoiser: DenoiserModel? = null,
 ) {
     val label: String
@@ -40,14 +44,17 @@ data class EngineSetup(
 
 /** Loaded sherpa-onnx models wired into a [StreamingPipeline]. Reusable across audio streams. */
 class SherpaStack(val setup: EngineSetup) : AutoCloseable {
-    private val asr = SherpaAsr(setup.asrModel, setup.modelsDir, setup.numThreads, setup.asrTrailingSilenceSec)
+    private val asr = SherpaAsr(setup.asrModel, setup.modelsDir, setup.numThreads, setup.asrTrailingSilenceSec, setup.hotwords, setup.beamSearch)
     private val vad = if (setup.useVad) SherpaVad(setup.modelsDir, setup.vadMinSilenceSec, setup.vadThreshold) else null
     private val embedder = setup.speakerModel?.let { SherpaEmbedder(it, setup.modelsDir) }
     private val denoiser = setup.denoiser?.let { SherpaDenoiser(it, setup.modelsDir) }
 
     /** A fresh pipeline (new speaker profiles) sharing the loaded models. */
-    fun newPipeline(): StreamingPipeline =
-        StreamingPipeline(asr, vad, embedder, SpeakerClusterer(setup.speakerThreshold), setup.pipeline, denoiser).also { it.reset() }
+    fun newPipeline(registry: tw.captions.core.VoiceRegistry? = null): StreamingPipeline =
+        StreamingPipeline(asr, vad, embedder, SpeakerClusterer(setup.speakerThreshold), setup.pipeline, denoiser, registry).also { it.reset() }
+
+    /** Speaker embedding of some audio (for registering voices in tests). */
+    fun embed(samples: FloatArray): FloatArray = requireNotNull(embedder) { "no speaker model" }.embed(samples)
 
     override fun close() {
         asr.close()

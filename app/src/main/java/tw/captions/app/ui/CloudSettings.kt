@@ -69,7 +69,7 @@ fun CloudSettings(
             )
             AzureCard(ui, onSaveAzure, onTestAzure, onRemoveAzure)
             Text(
-                "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供；自架伺服器（你的電腦）會在之後加入。",
+                "Google 雲端辨識在台灣腔測試中慢（約 3.7 秒才出字）或不準，暫時不提供。",
                 color = Sub, fontSize = 14.sp,
             )
         }
@@ -141,3 +141,4 @@ private fun AzureCard(
 }
 
 private fun regionName(id: String) = AzureSpeechEngine.REGIONS.firstOrNull { it.first == id }?.second ?: id
+
