@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            tw.captions.app.ui.AppTheme(ui.appearance) {
             var showEngines by remember { mutableStateOf(false) }
             var showSettings by remember { mutableStateOf(false) }
             var showPeople by remember { mutableStateOf(false) }
@@ -77,6 +78,7 @@ class MainActivity : ComponentActivity() {
                     onCancelDownload = viewModel::cancelDownload,
                     onUninstall = viewModel::uninstall,
                     onOpenSettings = { showEngines = false; showSettings = true },
+                    onAppearance = viewModel::setAppearance,
                 )
             }
             if (showPeople) {
@@ -120,6 +122,7 @@ class MainActivity : ComponentActivity() {
                     onSetPrices = viewModel::setUsagePrices,
                     onResetUsage = viewModel::resetUsage,
                 )
+            }
             }
         }
     }

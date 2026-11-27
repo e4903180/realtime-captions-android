@@ -41,9 +41,9 @@ import tw.captions.app.UiState
 import tw.captions.app.engine.EngineCatalog
 import tw.captions.app.engine.EngineInfo
 
-private val SheetBg = Color(0xFF1C1C1C)
-private val Sub = Color(0xFFB0B0B0)
-private val Accent = Color(0xFF66BB6A)
+private val SheetBg: Color @Composable get() = LocalPalette.current.surface
+private val Sub: Color @Composable get() = LocalPalette.current.sub
+private val Accent: Color @Composable get() = LocalPalette.current.accent
 
 /** Engine list: name, one-line description, badges, and download / remove for offline models. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +56,7 @@ fun EnginePicker(
     onCancelDownload: () -> Unit,
     onUninstall: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onAppearance: (Appearance) -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
@@ -67,13 +68,13 @@ fun EnginePicker(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("選擇辨識引擎", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("選擇辨識引擎", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             // Two kinds: models that run on the phone, and cloud services with the user's own key.
             var tab by remember { mutableStateOf(if (EngineCatalog.byId(ui.engineId)?.offline == false) 1 else 0) }
             androidx.compose.material3.TabRow(
                 selectedTabIndex = tab,
                 containerColor = SheetBg,
-                contentColor = Color.White,
+                contentColor = Ink,
             ) {
                 listOf("離線（在手機上）", "雲端").forEachIndexed { i, label ->
                     androidx.compose.material3.Tab(
@@ -108,6 +109,17 @@ fun EnginePicker(
                     onOpenSettings = onOpenSettings,
                     billing = if (info.paid) billingLine(ui) else null,
                 )
+            }
+            // 外觀 (ADR-031): follow the system, or always dark / light.
+            Text("外觀", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Appearance.entries.forEach { a ->
+                    if (a == ui.appearance) {
+                        androidx.compose.material3.Button(onClick = { onAppearance(a) }) { Text(a.label) }
+                    } else {
+                        OutlinedButton(onClick = { onAppearance(a) }) { Text(a.label, color = Ink) }
+                    }
+                }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -148,7 +160,7 @@ private fun EngineRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .border(1.dp, if (selected) Accent else Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+            .border(1.dp, if (selected) Accent else LocalPalette.current.border, RoundedCornerShape(12.dp))
             .clickable(onClick = onSelect)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -159,7 +171,7 @@ private fun EngineRow(
                 onClick = onSelect,
                 colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = Sub),
             )
-            Text(info.name, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(info.name, color = Ink, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         }
         Text(info.subtitle, color = Sub, fontSize = 15.sp, lineHeight = 21.sp)
         billing?.let { Text(it, color = Sub, fontSize = 14.sp, lineHeight = 20.sp) }
@@ -167,17 +179,17 @@ private fun EngineRow(
             if (info.recommended) Badge("推薦", Accent)
             Badge(if (info.offline) "不用網路" else "需要網路", Sub)
             if (info.speakerTags) Badge("說話者標籤", Sub)
-            if (info.paid) Badge("付費", Color(0xFFFFB74D))
+            if (info.paid) Badge("付費", LocalPalette.current.warn)
             if (info.packs.isNotEmpty() && !installed) Badge("下載約 ${mb(downloadBytes ?: info.packs.sumOf { it.downloadBytes })}", Sub)
         }
         if (info.needsKey) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (keyHint != null) "金鑰已設定（$keyHint）" else "需要設定金鑰",
-                    color = if (keyHint != null) Accent else Color(0xFFFFB74D),
+                    color = if (keyHint != null) Accent else LocalPalette.current.warn,
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedButton(onClick = onOpenSettings) { Text(if (keyHint != null) "設定" else "設定金鑰", color = Color.White) }
+                OutlinedButton(onClick = onOpenSettings) { Text(if (keyHint != null) "設定" else "設定金鑰", color = Ink) }
             }
         }
         if (info.packs.isNotEmpty()) {
@@ -186,16 +198,16 @@ private fun EngineRow(
                     LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth(), color = Accent)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("下載中 ${((progress ?: 0f) * 100).toInt()}%", color = Sub, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onCancel) { Text("取消", color = Color.White) }
+                        TextButton(onClick = onCancel) { Text("取消", color = Ink) }
                     }
                 }
                 installed -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("已安裝", color = Accent, modifier = Modifier.weight(1f))
-                    OutlinedButton(onClick = onRemove) { Text("移除（約 ${mb(freeBytes ?: 0)}）", color = Color.White) }
+                    OutlinedButton(onClick = onRemove) { Text("移除（約 ${mb(freeBytes ?: 0)}）", color = Ink) }
                 }
                 else -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("未安裝", color = Sub, modifier = Modifier.weight(1f))
-                    OutlinedButton(onClick = onDownload) { Text("下載", color = Color.White) }
+                    OutlinedButton(onClick = onDownload) { Text("下載", color = Ink) }
                 }
             }
         }
