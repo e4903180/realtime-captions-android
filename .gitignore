@@ -8,3 +8,7 @@ captures/
 *.apk
 *.keystore
 service-account*.json
+
+# Generated test audio (regenerate with testdata/generate.ps1)
+testdata/build/
+testdata/wavs/

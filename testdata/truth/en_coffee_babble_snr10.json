@@ -1,0 +1,40 @@
+{
+ "id": "en_coffee_babble_snr10",
+ "dialog": "en_coffee",
+ "language": "en-US",
+ "noise": "babble",
+ "snr_db": 10,
+ "duration": 20.774,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 3.323,
+   "speaker": "A",
+   "text": "Good morning, what can I get for you today?"
+  },
+  {
+   "start": 4.133,
+   "end": 7.066,
+   "speaker": "B",
+   "text": "Could I have a large latte with oat milk, please?"
+  },
+  {
+   "start": 7.696,
+   "end": 10.472,
+   "speaker": "A",
+   "text": "Sure, would you like anything to eat with that?"
+  },
+  {
+   "start": 11.29,
+   "end": 15.107,
+   "speaker": "B",
+   "text": "No thanks, just the coffee. Can I pay by card?"
+  },
+  {
+   "start": 15.972,
+   "end": 18.754,
+   "speaker": "A",
+   "text": "Of course, please tap your card on the reader."
+  }
+ ]
+}

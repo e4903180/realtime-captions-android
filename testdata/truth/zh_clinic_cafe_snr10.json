@@ -1,0 +1,52 @@
+{
+ "id": "zh_clinic_cafe_snr10",
+ "dialog": "zh_clinic",
+ "language": "zh-TW",
+ "noise": "cafe",
+ "snr_db": 10,
+ "duration": 36.123,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 3.722,
+   "speaker": "A",
+   "text": "您好，請問今天哪裡不舒服？"
+  },
+  {
+   "start": 4.524,
+   "end": 9.335,
+   "speaker": "B",
+   "text": "醫生你好，我這幾天一直咳嗽，晚上也睡不好。"
+  },
+  {
+   "start": 10.26,
+   "end": 13.125,
+   "speaker": "A",
+   "text": "有沒有發燒或是喉嚨痛的情況？"
+  },
+  {
+   "start": 14.077,
+   "end": 18.365,
+   "speaker": "B",
+   "text": "昨天有一點發燒，今天早上量是正常的。"
+  },
+  {
+   "start": 19.29,
+   "end": 23.692,
+   "speaker": "A",
+   "text": "好，我先幫你聽一下肺部的聲音，請深呼吸。"
+  },
+  {
+   "start": 24.499,
+   "end": 27.314,
+   "speaker": "B",
+   "text": "好的，需要把外套脫掉嗎？"
+  },
+  {
+   "start": 28.019,
+   "end": 34.053,
+   "speaker": "A",
+   "text": "不用，這樣就可以了。我會開三天的藥給你，記得多喝水。"
+  }
+ ]
+}

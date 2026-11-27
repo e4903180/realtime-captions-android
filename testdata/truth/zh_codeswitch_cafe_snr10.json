@@ -1,0 +1,34 @@
+{
+ "id": "zh_codeswitch_cafe_snr10",
+ "dialog": "zh_codeswitch",
+ "language": "zh-TW",
+ "noise": "cafe",
+ "snr_db": 10,
+ "duration": 18.476,
+ "segments": [
+  {
+   "start": 0.8,
+   "end": 3.352,
+   "speaker": "A",
+   "text": "你有看到我剛剛傳的 email 嗎？"
+  },
+  {
+   "start": 4.356,
+   "end": 8.288,
+   "speaker": "B",
+   "text": "有，我等一下會用 Google Meet 跟客戶開會。"
+  },
+  {
+   "start": 9.378,
+   "end": 12.514,
+   "speaker": "A",
+   "text": "開完會記得更新一下 project 的進度。"
+  },
+  {
+   "start": 13.186,
+   "end": 16.875,
+   "speaker": "B",
+   "text": "沒問題，我會寫在共享的文件裡面。"
+  }
+ ]
+}
