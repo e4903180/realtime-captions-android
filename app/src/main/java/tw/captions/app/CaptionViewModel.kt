@@ -33,6 +33,8 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** 自訂詞彙: names and terms the recognizer should prefer (Azure phrase list). */
+    val vocabulary: List<String> = emptyList(),
     /** 說話者辨識 (ADR-033): off = no speaker model, no labels. */
     val speakersOn: Boolean = true,
     /** 說話人數: 0 = automatic, 2..6 = fixed; finished lines are regrouped by voice (ADR-027). */
@@ -79,6 +81,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         /** Same as iPhone (ADR-027). */
         const val RECLUSTER_THRESHOLD = 0.45f
+
+        /** Azure accepts a few hundred phrases; more also stops helping. */
+        const val MAX_VOCABULARY = 200
     }
 
     private val models = ModelStore(app)
@@ -144,6 +149,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(appearance = appearance) }
         _ui.update { it.copy(speakersOn = prefs.getBoolean("speakers_on", true), speakerCount = prefs.getInt("speaker_count", 0)) }
         _ui.update { it.copy(fontSizeSp = prefs.getInt("font_size", it.fontSizeSp).coerceIn(20, 72)) }
+        _ui.update { it.copy(vocabulary = parseVocabulary(prefs.getString("vocabulary", "")!!)) }
         viewModelScope.launch(Dispatchers.IO) {
             val all = transcriptStore.loadAll()
             _ui.update { it.copy(transcripts = all) }
@@ -433,7 +439,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         self = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 var lastLevelAt = 0L
-                engine.transcribe(RecognitionConfig(languageTag = "zh-TW")).collect { event ->
+                engine.transcribe(RecognitionConfig(languageTag = "zh-TW", hotwords = _ui.value.vocabulary)).collect { event ->
                     if (event is tw.captions.core.TranscriptEvent.AudioLevel) {
                         // Arrives 50 times a second; the meter needs far fewer screen updates.
                         val state = assembler.onEvent(event)
@@ -562,6 +568,16 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         assembler.backgroundMode = if (on) tw.captions.core.BackgroundMode.OFF else _ui.value.backgroundMode
         prefs.edit().putBoolean("tv_mode", on).apply()
         _ui.update { it.copy(tvMode = on) }
+    }
+
+    private fun parseVocabulary(text: String): List<String> =
+        text.split('\n', ',', '，', '、').map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(MAX_VOCABULARY)
+
+    /** One word per line (commas also split). Used from the next time captions start. */
+    fun setVocabulary(text: String) {
+        val words = parseVocabulary(text)
+        prefs.edit().putString("vocabulary", words.joinToString("\n")).apply()
+        _ui.update { it.copy(vocabulary = words) }
     }
 
     fun setSpeakersOn(on: Boolean) {

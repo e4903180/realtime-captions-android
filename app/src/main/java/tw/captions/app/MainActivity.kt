@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     onAppearance = viewModel::setAppearance,
                     onSpeakersOn = viewModel::setSpeakersOn,
                     onSpeakerCount = viewModel::setSpeakerCount,
+                    onVocabulary = viewModel::setVocabulary,
                 )
             }
             if (showPeople) {

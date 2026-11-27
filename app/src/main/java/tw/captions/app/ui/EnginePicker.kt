@@ -60,6 +60,7 @@ fun EnginePicker(
     onAppearance: (Appearance) -> Unit = {},
     onSpeakersOn: (Boolean) -> Unit = {},
     onSpeakerCount: (Int) -> Unit = {},
+    onVocabulary: (String) -> Unit = {},
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
@@ -113,6 +114,22 @@ fun EnginePicker(
                     billing = if (info.paid) billingLine(ui) else null,
                 )
             }
+            // 自訂詞彙: the user's own names and terms.
+            Text("自訂詞彙", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            var words by remember(ui.vocabulary) { mutableStateOf(ui.vocabulary.joinToString("\n")) }
+            androidx.compose.material3.OutlinedTextField(
+                value = words,
+                onValueChange = { words = it },
+                label = { Text("一行一個詞，例如家人名字、地名、專有名詞") },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onVocabulary(words) }, enabled = words != ui.vocabulary.joinToString("\n")) { Text("儲存", color = Ink) }
+                Text("目前 ${ui.vocabulary.size} 個詞", color = Sub, fontSize = 14.sp)
+            }
+            Text("Azure 雲端會優先辨識成這些詞，下次按「開始」生效。離線模型還不支援，之後補上。", color = Sub, fontSize = 14.sp)
             // 說話者 (ADR-027, ADR-033)
             Text("說話者", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
