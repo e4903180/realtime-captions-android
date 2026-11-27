@@ -53,6 +53,7 @@ struct CaptionView: View {
             controls
         }
         .background(backgroundColor.ignoresSafeArea())
+        .onChange(of: tvMode) { _ in model.tvModeChanged() }
         .sheet(isPresented: Binding(
             get: { model.showCloudSettings && !showPicker },
             set: { model.showCloudSettings = $0 }
@@ -156,11 +157,13 @@ struct CaptionView: View {
                     ForEach(model.lines) { line in
                         let continued = model.continuesLastLine && line.id == model.lines.last?.id
                         lineView(line.text, speaker: line.speaker, current: continued)
+                            .opacity(line.background || (continued && model.currentBackground) ? 0.45 : 1)
                             .contentShape(Rectangle())
                             .onLongPressGesture { if model.speakersOn { naming = line } }
                     }
                     if !model.continuesLastLine && (!model.stableText.isEmpty || !model.tentativeText.isEmpty) {
                         lineView(nil, speaker: model.currentSpeaker, current: true)
+                            .opacity(model.currentBackground ? 0.45 : 1)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }

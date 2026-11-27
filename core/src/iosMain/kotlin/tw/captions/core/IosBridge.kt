@@ -45,13 +45,15 @@ fun createOfflinePipeline(
     speakerThreshold: Float,
     keepAudio: Boolean,
     registry: VoiceRegistry?,
+    backgroundFilter: Boolean,
 ): StreamingPipeline = StreamingPipeline(
     asr, vad, embedder, SpeakerClusterer(speakerThreshold),
     PipelineConfig(
         vadEndpointSilenceSec = 0.6f,
-        focusMarginDb = null,
+        // 背景過濾 (ADR-035): off by default, as quiet partners were hidden as often as a TV.
+        focusMarginDb = if (backgroundFilter) 8f else null,
         keepUtteranceAudioSec = if (keepAudio) 20f else 0f,
-        unknownIsBackground = false,
+        unknownIsBackground = backgroundFilter,
     ),
     registry = registry,
 )
@@ -65,6 +67,9 @@ fun createCaptionAssembler(converter: ChineseScriptConverter): CaptionAssembler 
 
 /** Speaker letter of a caption line ("A", "B", ...), or null. Value classes reach Swift boxed, so read it here. */
 fun speakerLabelOf(line: CaptionLine): String? = line.speakerName ?: line.speaker?.label
+
+/** Swift sees Kotlin enums as classes; these pick the mode by name. */
+fun backgroundModeOf(name: String): BackgroundMode = BackgroundMode.entries.firstOrNull { it.name == name } ?: BackgroundMode.OFF
 
 /** Speaker letter of the line in progress, or null. */
 fun currentSpeakerLabelOf(state: CaptionState): String? = state.currentSpeakerName ?: state.currentSpeaker?.label

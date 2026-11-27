@@ -20,9 +20,11 @@ final class OfflineEngine {
     var onRevision: ((Int, String) -> Void)?
 
     let hasSpeakers: Bool
+    let backgroundFilter: Bool
 
-    init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil, registry: VoiceRegistry? = nil) {
+    init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil, registry: VoiceRegistry? = nil, backgroundFilter: Bool = false) {
         hasSpeakers = speakers
+        self.backgroundFilter = backgroundFilter
         secondPass = secondPassDirectory.map { SherpaSecondPass(directory: $0) }
         pipeline = IosBridgeKt.createOfflinePipeline(
             asr: SherpaAsr(models: models),
@@ -30,7 +32,8 @@ final class OfflineEngine {
             embedder: speakers ? SherpaEmbedder(models: models) : nil,
             speakerThreshold: Self.speakerThreshold,
             keepAudio: secondPass != nil,
-            registry: speakers ? registry : nil
+            registry: speakers ? registry : nil,
+            backgroundFilter: backgroundFilter
         )
     }
 
