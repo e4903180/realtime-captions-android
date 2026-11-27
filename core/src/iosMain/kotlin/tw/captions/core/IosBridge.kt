@@ -42,12 +42,12 @@ fun createOfflinePipeline(
     asr: StreamingAsr,
     vad: VoiceActivityDetector?,
     embedder: SpeakerEmbedder?,
-    speakerThreshold: Float,
+    clusterer: SpeakerClusterer,
     keepAudio: Boolean,
     registry: VoiceRegistry?,
     backgroundFilter: Boolean,
 ): StreamingPipeline = StreamingPipeline(
-    asr, vad, embedder, SpeakerClusterer(speakerThreshold),
+    asr, vad, embedder, clusterer,
     PipelineConfig(
         vadEndpointSilenceSec = 0.6f,
         // 背景過濾 (ADR-035): off by default, as quiet partners were hidden as often as a TV.
@@ -67,6 +67,19 @@ fun createCaptionAssembler(converter: ChineseScriptConverter): CaptionAssembler 
 
 /** Speaker letter of a caption line ("A", "B", ...), or null. Value classes reach Swift boxed, so read it here. */
 fun speakerLabelOf(line: CaptionLine): String? = line.speakerName ?: line.speaker?.label
+
+/** Live speaker grouping for [createOfflinePipeline]; the app keeps it to sync after regrouping. */
+fun createSpeakerClusterer(threshold: Float): SpeakerClusterer = SpeakerClusterer(threshold)
+
+/**
+ * After [CaptionAssembler.recluster]: the live grouping takes over the regrouped voices, so the
+ * next line gets its final letter at once (from the next line; safe from any thread).
+ */
+fun syncSpeakers(clusterer: SpeakerClusterer, assembler: CaptionAssembler) =
+    clusterer.replaceProfiles(assembler.speakerProfiles())
+
+/** Captions cleared: the live grouping starts again from A. */
+fun resetSpeakers(clusterer: SpeakerClusterer) = clusterer.replaceProfiles(emptyMap())
 
 /** Swift sees Kotlin enums as classes; these pick the mode by name. */
 fun backgroundModeOf(name: String): BackgroundMode = BackgroundMode.entries.firstOrNull { it.name == name } ?: BackgroundMode.OFF
