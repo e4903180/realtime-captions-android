@@ -36,7 +36,7 @@ fetch "https://repo1.maven.org/maven2/com/github/houbb/opencc4j/$OPENCC4J_VERSIO
   5a22347f9f3f0811c201e19681b1237b36165ceb2041ed2efd49ba40358a598a "$cache/opencc4j.jar"
 # Azure AI Speech SDK for the cloud engine (Microsoft's official iOS xcframework).
 fetch "https://csspeechstorage.blob.core.windows.net/drop/$AZURE_SPEECH_VERSION/MicrosoftCognitiveServicesSpeech-XCFramework-$AZURE_SPEECH_VERSION.zip" \
-  0000000000000000000000000000000000000000000000000000000000000000 "$cache/azure-speech.zip"
+  6166a6338a55d4fe5e98e67460d21d5e725a7dd47268fc3648113de866f4a780 "$cache/azure-speech.zip"
 
 stamp="$vendor/.stamp-$SHERPA_VERSION-$ORT_VERSION-$OPENCC4J_VERSION-$AZURE_SPEECH_VERSION"
 if [ ! -f "$stamp" ]; then
