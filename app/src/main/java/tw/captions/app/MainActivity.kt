@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 engines = viewModel.engines,
                 onStart = ::startWithPermission,
                 onStop = viewModel::stopByUser,
-                onOpenEngines = { showEngines = true },
+                onOpenEngines = { viewModel.refreshMics(); showEngines = true },
                 onOpenSettings = { showSettings = true },
                 onToggleBackground = viewModel::toggleBackground,
                 onToggleTv = viewModel::toggleTvMode,
@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
                     onSpeakersOn = viewModel::setSpeakersOn,
                     onSpeakerCount = viewModel::setSpeakerCount,
                     onVocabulary = viewModel::setVocabulary,
+                    onMic = viewModel::setMic,
+                    onSystemNoiseSuppression = viewModel::setSystemNoiseSuppression,
                 )
             }
             if (showPeople) {

@@ -40,6 +40,11 @@ data class UiState(
     val anthropicKeyHint: String? = null,
     val anthropicTesting: Boolean = false,
     val anthropicTestMessage: String? = null,
+    /** Microphone: 0 = automatic, otherwise an AudioDeviceInfo type (phone, wired, USB). */
+    val micType: Int = 0,
+    val micChoices: List<Pair<Int, String>> = emptyList(),
+    /** The phone's own noise suppression on the microphone. */
+    val systemNoiseSuppression: Boolean = true,
     /** Shown in yellow: the cloud engine failed and captions continue with the offline engine. */
     val cloudNotice: String? = null,
     /** Shown in yellow under the captions when proof-reading is retrying or paused. */
@@ -111,16 +116,21 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val clusterer = tw.captions.core.SpeakerClusterer()
 
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
-            openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
+            openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() },
             speakersOn = { _ui.value.speakersOn },
         ),
     )
 
     private val vault = KeyVault(app)
+
+    private fun openMic() = MicInput(
+        preferred = tw.captions.app.engine.Microphones.find(getApplication(), _ui.value.micType),
+        noiseSuppression = _ui.value.systemNoiseSuppression,
+    )
 
     private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
 
@@ -167,6 +177,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(speakersOn = prefs.getBoolean("speakers_on", true), speakerCount = prefs.getInt("speaker_count", 0)) }
         _ui.update { it.copy(fontSizeSp = prefs.getInt("font_size", it.fontSizeSp).coerceIn(20, 72)) }
         _ui.update { it.copy(vocabulary = parseVocabulary(prefs.getString("vocabulary", "")!!)) }
+        _ui.update { it.copy(micType = prefs.getInt("mic_type", 0), systemNoiseSuppression = prefs.getBoolean("system_ns", true)) }
+        refreshMics()
         val proofModel = runCatching { tw.captions.app.proofread.Proofreader.Model.valueOf(prefs.getString("proofread_model", "OPUS")!!) }
             .getOrDefault(tw.captions.app.proofread.Proofreader.Model.OPUS)
         val (proofRequests, proofCost) = usageStore.claudeThisMonth()
@@ -774,6 +786,28 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val words = parseVocabulary(text)
         prefs.edit().putString("vocabulary", words.joinToString("\n")).apply()
         _ui.update { it.copy(vocabulary = words) }
+    }
+
+    /** Looks again at what is plugged in (called when the settings sheet opens). */
+    fun refreshMics() {
+        _ui.update { it.copy(micChoices = tw.captions.app.engine.Microphones.choices(getApplication())) }
+    }
+
+    private fun restartIfRunning(change: () -> Unit) {
+        val wasRunning = job != null
+        if (wasRunning) stop()
+        change()
+        if (wasRunning) start()
+    }
+
+    fun setMic(type: Int) {
+        prefs.edit().putInt("mic_type", type).apply()
+        restartIfRunning { _ui.update { it.copy(micType = type) } }
+    }
+
+    fun setSystemNoiseSuppression(on: Boolean) {
+        prefs.edit().putBoolean("system_ns", on).apply()
+        restartIfRunning { _ui.update { it.copy(systemNoiseSuppression = on) } }
     }
 
     fun setSpeakersOn(on: Boolean) {
