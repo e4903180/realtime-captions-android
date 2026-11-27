@@ -1,0 +1,152 @@
+<title>即時字幕引擎測試</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; tables and caption "screens" may scroll sideways inside their own boxes.
+   The caption screens copy the app itself: black ground, speaker letters in the app's colors. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b2330; --muted: #5d6878; --line: #dde2ea;
+  --accent: #0f6e8c; --good: #1f7a46; --mid: #a26a00; --bad: #b3261e; --mark: #ffd9d6; --mark-fg: #8c1b14;
+  --screen: #000000; --screen-fg: #ffffff;
+  --s0: #80d8ff; --s1: #ffab91; --s2: #b9f6ca; --s3: #ea80fc; --s4: #ffe57f;
+  --font: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --num: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151b; --panel: #181e26; --fg: #e5e9ef; --muted: #9aa5b4; --line: #2a333f;
+  --accent: #5cc4e0; --good: #5fd08b; --mid: #e6b450; --bad: #ff8a80; --mark: #5b1f1b; --mark-fg: #ffd2cd; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11151b; --panel: #181e26; --fg: #e5e9ef; --muted: #9aa5b4; --line: #2a333f;
+  --accent: #5cc4e0; --good: #5fd08b; --mid: #e6b450; --bad: #ff8a80; --mark: #5b1f1b; --mark-fg: #ffd2cd; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 16px; line-height: 1.7; }
+main { max-width: 980px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1 { font-size: 2rem; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; }
+h2 { font-size: 1.35rem; margin: 48px 0 12px; padding-top: 8px; border-top: 2px solid var(--line); text-wrap: balance; }
+h3.group { font-size: 1.1rem; color: var(--accent); margin: 32px 0 10px; }
+p { margin: 0 0 10px; max-width: 68ch; }
+.lede { color: var(--muted); }
+.num, td.n, .cer, .meta { font-family: var(--num); font-variant-numeric: tabular-nums; }
+.verdict { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 18px; }
+.verdict div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.verdict strong { display: block; margin-bottom: 4px; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font-weight: 500; color: var(--muted); white-space: nowrap; }
+td.n { text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+tr.pick td { font-weight: 700; }
+.heat td.n { color: #10151c; }
+.h0 { background: #cfeedd; } .h1 { background: #e7f2c6; } .h2 { background: #fbe3b3; } .h3 { background: #f8c6b8; } .h4 { background: #ef9f97; }
+.clip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 0 0 18px; min-width: 0; }
+.clip header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.clip h4 { margin: 0; font-size: 1.05rem; }
+.meta { color: var(--muted); font-size: 0.82rem; }
+.note { color: var(--muted); font-size: 0.92rem; margin-top: 4px; }
+audio { width: 100%; margin: 6px 0 10px; }
+.ref { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin-bottom: 12px; }
+.ref p { margin: 0; }
+.label { display: block; font-size: 0.78rem; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 2px; }
+.outs { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.out { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.eng { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 8px 10px; }
+.eng small { grid-column: 1; color: var(--muted); font-size: 0.78rem; }
+.eng .cer { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 0.82rem; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.cer.good { color: var(--good); } .cer.mid { color: var(--mid); } .cer.bad { color: var(--bad); }
+.screen { background: var(--screen); color: var(--screen-fg); padding: 10px 12px; font-size: 1.02rem; line-height: 1.6; flex: 1; }
+.screen p { margin: 0 0 6px; max-width: none; }
+.screen .x { background: #7a1d16; color: #ffe1dc; border-radius: 3px; }
+.screen .none { color: #9e9e9e; }
+.spk { margin-right: 2px; } .spk.s0 { color: var(--s0); } .spk.s1 { color: var(--s1); } .spk.s2 { color: var(--s2); } .spk.s3 { color: var(--s3); } .spk.s4 { color: var(--s4); } .spk.s9 { color: #bdbdbd; }
+.spk.ref { color: var(--accent); }
+.none { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.88rem; color: var(--muted); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; padding: 0 6px; border-radius: 3px; background: #7a1d16; color: #ffe1dc; }
+footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<main>
+<h1>即時字幕引擎測試</h1>
+<p class="lede">給聽障朋友用的即時字幕 App：比較手機離線模型、自己電腦上的大模型，以及 Google、Azure 雲端服務，用台灣口音的真實錄音、合成對話和真實噪音測試。2026 年 11 月 27 日。</p>
+
+<div class="verdict">
+  <div><strong>App 預設：手機離線 X-ASR</strong>最快出字（約 1.0 秒），不用網路、免費、會標示說話者。台灣腔朗讀錯字率 11.7%。</div>
+  <div><strong>最準：Azure</strong>台灣腔朗讀錯字率 5.1%，說話者標籤 97% 正確，延遲和手機差不多。適合當付費雲端選項。</div>
+  <div><strong>課程、長演講：Breeze-ASR-25</strong>台大課程錄音錯字率只有 4.9%，但需要約 7 GB 顯示卡記憶體，也不分說話者。</div>
+  <div><strong>共同弱點：旁邊有人在說話</strong>多人交談背景聲和電視會讓所有引擎錯字率超過 50%，還會把別人的話打成字幕。</div>
+</div>
+
+<h2>總比較（台灣口音）</h2>
+<p>錯字率是把辨識結果轉成台灣繁體、去掉標點後，和正確答案逐字比對（英文逐字詞）。出字時間是從開口到第一個字出現在畫面上；定稿是說完到這一行確定。</p>
+<div class="table"><table>
+<thead><tr><th>引擎</th><th>在哪裡跑</th><th>Common Voice 朗讀</th><th>YouTube 對談</th><th>台大課程</th><th>出字</th><th>定稿</th><th>說話者標籤</th><th>費用</th></tr></thead>
+<tbody>
+<tr class="pick"><td>手機離線 X-ASR</td><td>手機</td><td class="n">11.7%</td><td class="n">13.6%</td><td class="n">13.7%</td><td class="n">1.00 秒</td><td class="n">0.67 秒</td><td>有，84%</td><td>免費</td></tr>
+<tr><td>Azure</td><td>微軟雲端</td><td class="n">5.1%</td><td class="n">11.1%</td><td class="n">–</td><td class="n">1.27 秒</td><td class="n">0.84 秒</td><td>有，97%</td><td>約 US$1.3／小時，每月 5 小時免費</td></tr>
+<tr><td>Google Chirp 3</td><td>Google 雲端（美國）</td><td class="n">8.0%</td><td class="n">8.2%</td><td class="n">–</td><td class="n">3.68 秒</td><td class="n">1.78 秒</td><td>無</td><td>約 US$1／小時</td></tr>
+<tr><td>Google V1</td><td>Google 雲端</td><td class="n">21.1%</td><td class="n">16.8%</td><td class="n">–</td><td class="n">0.58 秒</td><td class="n">7.23 秒</td><td>無</td><td>約 US$1.4／小時</td></tr>
+<tr><td>Breeze-ASR-25</td><td>自己的 4070</td><td class="n">12.9%</td><td class="n">8.3%</td><td class="n">4.9%</td><td class="n">1.24 秒</td><td class="n">0.94 秒</td><td>無</td><td>電費</td></tr>
+<tr><td>Whisper large-v3</td><td>自己的 4070</td><td class="n">13.1%</td><td class="n">8.5%</td><td class="n">7.3%</td><td class="n">1.16 秒</td><td class="n">0.85 秒</td><td>無</td><td>電費</td></tr>
+<tr><td>Whisper turbo</td><td>自己的 4070</td><td class="n">13.4%</td><td class="n">9.4%</td><td class="n">8.4%</td><td class="n">1.10 秒</td><td class="n">0.77 秒</td><td>無</td><td>電費</td></tr>
+</tbody></table></div>
+<p class="note">雲端服務只測了部分檔案（Common Voice 16 段、YouTube 2 段）以控制費用。Whisper 系列是「每秒更新一次」的即時模式。Azure 預設會把它認為不雅的字換成 *（例如「三多幹線」變成「山多*線」），接進 App 時要關掉這個過濾。</p>
+
+<h2>測試資料</h2>
+<p>音檔都只放在本機，不上傳 GitHub；GitHub 上只有下載和處理的程式，所以結果可以重現。</p>
+<div class="table"><table>
+<thead><tr><th>資料</th><th>口音</th><th>內容</th><th>份量</th><th>授權</th></tr></thead>
+<tbody>
+<tr><td>合成對話</td><td>台灣（合成）</td><td>Windows 台灣中文語音 Yating、Hanhan、Zhiwei 扮演 2–3 人：看診、晚餐、會議、中英夾雜；另有英文對話。附逐字稿和誰在說話。</td><td class="n">6 段 × 5 種噪音</td><td>自製</td></tr>
+<tr><td>Common Voice zh-TW</td><td>台灣</td><td>Mozilla 志工朗讀，只留出生地在台灣的錄音者，兩人輪流組成對話。</td><td class="n">16 段，16 分鐘</td><td>CC0</td></tr>
+<tr><td>YouTube CC 影片</td><td>台灣</td><td>數位發展部 PDIS、g0v 座談、Podcast 訪談，人工字幕當答案。</td><td class="n">6 段，42 分鐘</td><td>CC BY</td></tr>
+<tr><td>台大機器學習課程</td><td>台灣</td><td>李宏毅老師上課錄音，中英夾雜術語。</td><td class="n">2 堂，35 分鐘</td><td>MIT</td></tr>
+<tr><td>AISHELL-1</td><td>大陸</td><td>近距離朗讀，作為對照組。</td><td class="n">16 段，18 分鐘</td><td>Apache 2.0</td></tr>
+<tr><td>AliMeeting</td><td>大陸</td><td>真實會議室，遠距麥克風，2–4 人常常搶話。</td><td class="n">8 場 × 10 分鐘</td><td>CC BY-SA 4.0</td></tr>
+<tr><td>真實噪音</td><td>–</td><td>DEMAND 餐廳、街道、廚房、咖啡廳錄音；真實房間殘響；台灣腔多人交談聲；電視（人聲＋音樂）。</td><td class="n">SNR 20 到 −5 dB</td><td>CC BY-SA 3.0 等</td></tr>
+</tbody></table></div>
+
+<h2>試聽：同一段聲音，各引擎打出什麼</h2>
+<p>按播放鍵聽原音，下面是各引擎的字幕，黑底仿照 App 的字幕畫面。</p>
+<div class="legend"><span><span class="sw">紅底</span> 和正確答案對不上的字（打錯或多打）</span><span>A／B／C 是引擎自己判斷的說話者，只看是否前後一致，不看字母</span></div>
+{{CLIPS}}
+
+<h2>噪音：手機離線 X-ASR 的錯字率</h2>
+<p>台灣腔對話加上真實噪音，SNR 是人聲比噪音大多少（dB 越小越吵；0 dB 代表一樣大聲）。顏色越紅越不能用；15% 以下大致可以跟上對話。</p>
+<div class="table"><table class="heat">
+<thead><tr><th>噪音</th><th>乾淨</th><th>20 dB</th><th>15 dB</th><th>10 dB</th><th>5 dB</th><th>0 dB</th><th>−5 dB</th></tr></thead>
+<tbody>
+<tr><td>廚房碗盤</td><td class="n h0">8%</td><td class="n h0">8%</td><td class="n h0">8%</td><td class="n h0">7%</td><td class="n h0">9%</td><td class="n h1">13%</td><td class="n h1">15%</td></tr>
+<tr><td>街道車流</td><td class="n h0">8%</td><td class="n h0">9%</td><td class="n h1">11%</td><td class="n h1">11%</td><td class="n h1">12%</td><td class="n h1">15%</td><td class="n h2">21%</td></tr>
+<tr><td>餐廳</td><td class="n h0">8%</td><td class="n h1">12%</td><td class="n h1">12%</td><td class="n h1">15%</td><td class="n h2">24%</td><td class="n h3">38%</td><td class="n h4">88%</td></tr>
+<tr><td>咖啡廳＋殘響</td><td class="n h0">8%</td><td class="n h2">16%</td><td class="n h2">16%</td><td class="n h2">20%</td><td class="n h3">31%</td><td class="n h4">53%</td><td class="n h4">90%</td></tr>
+<tr><td>多人交談背景</td><td class="n h0">8%</td><td class="n h2">18%</td><td class="n h2">20%</td><td class="n h3">30%</td><td class="n h4">55%</td><td class="n h4">78%</td><td class="n h4">90%</td></tr>
+<tr><td>電視</td><td class="n h0">8%</td><td class="n h4">70%</td><td class="n h4">79%</td><td class="n h4">87%</td><td class="n h4">108%</td><td class="n h4">120%</td><td class="n h4">128%</td></tr>
+</tbody></table></div>
+<p class="note">超過 100% 是因為引擎把電視裡的話也打成字幕。延遲在各種噪音下都很穩定：出字約 0.93 秒、定稿約 0.8 秒。</p>
+
+<h3 class="group">沒有人說話時的「假字幕」（3 分鐘純噪音）</h3>
+<div class="table"><table>
+<thead><tr><th>噪音</th><th>假字幕行數</th><th>字數</th><th>例子</th></tr></thead>
+<tbody>
+<tr><td>電視</td><td class="n">43</td><td class="n">393</td><td>演出的獲利模式來自於假新聞</td></tr>
+<tr><td>多人交談背景</td><td class="n">40</td><td class="n">120</td><td>目前去・來・兩</td></tr>
+<tr><td>餐廳</td><td class="n">1</td><td class="n">5</td><td>這些拿出去</td></tr>
+<tr><td>街道、音樂</td><td class="n">0</td><td class="n">0</td><td>–</td></tr>
+</tbody></table></div>
+<p>聽障使用者分不出這些字幕是對面的人說的還是電視。下一步是「只顯示近處主要說話者」：用音量和聲紋過濾背景人聲。</p>
+
+<h3 class="group">降噪模型有沒有用？</h3>
+<p>試了兩個降噪模型放在辨識前面（GTCRN 0.5 MB、DPDFNet 10 MB）。錯字率沒有變好，大多反而變差，例如餐廳 0 dB：不降噪 39%、GTCRN 68%、DPDFNet 44%。辨識模型本身就是用含噪音的資料訓練的，降噪的失真反而干擾它。降噪對說話者標籤有一點幫助（餐廳 0 dB：57% → 74–82%）。結論：<strong>預設關閉</strong>。</p>
+
+<h2>口音的影響</h2>
+<p>同一個手機模型，台灣腔朗讀（Common Voice）錯字率 11.7%，大陸腔朗讀（AISHELL-1）只有 4.0%，大約差 3 倍。最常錯的是台灣地名和用語：捷運→潔運、三多→山多、石門→十門。課程裡的英文術語也會錯，例如 self-supervised→Sales supervised、BERT→bird。下一步可以加「台灣用語修正字典」和熱詞。繁體轉換已使用台灣用語（軟件→軟體、視頻→影片、出租車→計程車）。</p>
+<p>多人搶話的真實會議（AliMeeting）是最難的情境：重疊少的會議錯字率 10–13%，重疊多的 30–78%。</p>
+
+<footer>
+<p>完整數據與方法：GitHub 專案 docs/benchmark.md、benchmark-real.md、benchmark-noise.md、benchmark-engines.md。資料來源：Mozilla Common Voice（CC0）、AISHELL-1（Apache 2.0）、AliMeeting（CC BY-SA 4.0）、DEMAND（CC BY-SA 3.0）、OpenSLR SLR28（Apache 2.0）、Kevin MacLeod 音樂（CC BY 4.0）、PDIS 與 g0v 影片（CC BY 3.0）、台大 ML 2021（MIT）。試聽片段為上述資料的節錄或混音。</p>
+</footer>
+</main>
