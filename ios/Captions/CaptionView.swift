@@ -60,7 +60,9 @@ struct CaptionView: View {
     private var captions: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
+                // A plain VStack: LazyVStack estimates the height of lines it has not laid out,
+                // which made the list jump while scrolling to the newest line (at most 200 lines).
+                VStack(alignment: .leading, spacing: 14) {
                     if model.lines.isEmpty && model.stableText.isEmpty && model.tentativeText.isEmpty {
                         Text(model.running ? "正在聽…" : "按下「開始」，說話會即時顯示在這裡")
                             .font(.system(size: 24))
@@ -76,13 +78,22 @@ struct CaptionView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: model.lines.count) { _ in proxy.scrollTo("bottom") }
-            .onChange(of: model.tentativeText) { _ in proxy.scrollTo("bottom") }
-            .onChange(of: model.stableText) { _ in proxy.scrollTo("bottom") }
+            // One scroll per change, without animation, so the text does not bounce.
+            .onChange(of: scrollKey) { _ in
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
         }
+    }
+
+    /// Changes whenever the bottom of the captions may have moved.
+    private var scrollKey: String {
+        "\(model.lines.count)|\(model.lines.last?.text.count ?? 0)|\(model.stableText.count + model.tentativeText.count)|\(model.continuesLastLine)"
     }
 
     @ViewBuilder

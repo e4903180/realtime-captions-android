@@ -80,6 +80,8 @@ class CaptionAssembler(
     private var silentRounds = 0
     private var lastFinalAt: Double? = null
     private var utteranceStartAt: Double? = null
+    /** Whether the utterance in progress is shown on the last line; decided once so it does not jump back and forth. */
+    private var joining: Boolean? = null
 
     /** Utterances that make up each line in [CaptionState.lines] (same order), so one can be corrected later. */
     private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>)
@@ -104,6 +106,7 @@ class CaptionAssembler(
         silentRounds = 0
         lastFinalAt = null
         utteranceStartAt = null
+        joining = null
     }
 
     /** Whether an utterance by [speaker] that started at [startAt] should join the last line. */
@@ -141,8 +144,14 @@ class CaptionAssembler(
                 val stableLen = if (lastPartial.isEmpty()) 0 else commonPrefixLength(lastPartial, text)
                 if (lastPartial.isEmpty() && utteranceStartAt == null) utteranceStartAt = clockSec()
                 lastPartial = text
+                // Decide once; only leave the last line if the speaker turns out to be someone else.
+                joining = when (val j = joining) {
+                    null -> joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false)
+                    true -> joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false)
+                    false -> j
+                }
                 state.copy(
-                    continuesLastLine = joinsLastLine(event.speaker, event.background, utteranceStartAt, finalSpeakerKnown = false),
+                    continuesLastLine = joining == true,
                     hint = null,
                     currentSpeaker = event.speaker,
                     currentSpeakerName = event.speakerName,
@@ -160,6 +169,7 @@ class CaptionAssembler(
                 val now = clockSec()
                 val startAt = utteranceStartAt ?: now
                 utteranceStartAt = null
+                joining = null
                 val hidden = text.isBlank() || (event.background && backgroundMode == BackgroundMode.HIDE)
                 val seq = finals++
                 val lines = when {

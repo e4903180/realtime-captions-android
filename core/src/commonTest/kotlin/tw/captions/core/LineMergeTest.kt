@@ -59,4 +59,14 @@ class LineMergeTest {
         a.say("一", 0, 0.0, 1.0)
         assertEquals(2, a.say("二", 0, 1.1, 2.0).lines.size)
     }
+
+    @Test
+    fun aLineThatStartedOnItsOwnDoesNotJumpBackUp() {
+        val a = assembler()
+        a.say("第一句", 0, 0.0, 1.0)
+        now = 5.0 // long pause: new line
+        assertFalse(a.onEvent(TranscriptEvent.Partial("第", SpeakerId(0))).continuesLastLine)
+        now = 5.5
+        assertFalse(a.onEvent(TranscriptEvent.Partial("第二", SpeakerId(0))).continuesLastLine)
+    }
 }
