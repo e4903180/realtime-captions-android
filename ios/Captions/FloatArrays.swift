@@ -15,7 +15,7 @@ enum FloatArrays {
         guard n > 0 else { return [] }
         var out = [Float](repeating: 0, count: n)
         out.withUnsafeMutableBufferPointer { buf in
-            IosBridgeKt.copyFloatArrayToPointer(array: array, dst: buf.baseAddress!)
+            IosBridgeKt.writeFloatArrayToPointer(array: array, dst: buf.baseAddress!)
         }
         return out
     }

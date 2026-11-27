@@ -23,8 +23,8 @@ fun floatArrayFromPointer(src: CPointer<FloatVar>, count: Int): FloatArray {
     return out
 }
 
-/** Copies all of [array] into a Swift buffer that has room for at least [array].size samples. */
-fun copyFloatArrayToPointer(array: FloatArray, dst: CPointer<FloatVar>) {
+/** Copies all of [array] into a Swift buffer (not named copy…: Objective-C reserves that prefix) that has room for at least [array].size samples. */
+fun writeFloatArrayToPointer(array: FloatArray, dst: CPointer<FloatVar>) {
     if (array.isEmpty()) return
     array.usePinned { memcpy(dst, it.addressOf(0), (array.size * Float.SIZE_BYTES).toULong()) }
 }
