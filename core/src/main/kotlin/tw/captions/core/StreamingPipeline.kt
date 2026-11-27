@@ -70,7 +70,7 @@ data class PipelineConfig(
      * Lines with less speech than this never start a new speaker: short embeddings are noisy and
      * would otherwise split one person into several.
      */
-    val minNewSpeakerSec: Float = 1.5f,
+    val minNewSpeakerSec: Float = 1.0f,
     /**
      * People who talk without real pauses would get one endless line. After this long, a short
      * breath ([shortPauseSec]) is enough to end the line.

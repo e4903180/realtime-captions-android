@@ -106,7 +106,8 @@ def run_one(key, region, d, name):
             "err_nofill": edit([x for x in ref if x not in FILLERS], [x for x in hyp if x not in FILLERS]),
             "ref_nofill": len([x for x in ref if x not in FILLERS]), "ttfp": ttfp, "final": fin,
             "speaker_acc": speaker_accuracy(lines, truth["segments"]) if labelled else None,
-            "speakers": len({l["speaker"] for l in lines if l["speaker"]}), "text": tw(hyp_text)[:300]}
+            "speakers": len({l["speaker"] for l in lines if l["speaker"]}), "text": tw(hyp_text)[:300],
+            "lines": [{"text": tw(l["text"]), "speaker": l["speaker"]} for l in lines]}
 
 
 def main():
