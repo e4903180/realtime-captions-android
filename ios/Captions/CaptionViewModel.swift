@@ -39,6 +39,7 @@ final class CaptionViewModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(speakerCount, forKey: "speakerCount")
             apply(assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount)))
+            syncSpeakers()
         }
     }
     static let reclusterThreshold: Float = 0.45
@@ -248,7 +249,14 @@ final class CaptionViewModel: ObservableObject {
         scheduleProofreading()
     }
 
+    /// The live grouping takes over the regrouped speakers, so A stays A on the next line.
+    private func syncSpeakers() {
+        guard let offline, offline.hasSpeakers else { return }
+        IosBridgeKt.syncSpeakers(clusterer: offline.clusterer, assembler: assembler)
+    }
+
     func clear() {
+        if let offline { IosBridgeKt.resetSpeakers(clusterer: offline.clusterer) }
         assembler.reset()
         finalSeqs.removeAll()
         reviewed.removeAll()
@@ -424,6 +432,7 @@ final class CaptionViewModel: ObservableObject {
         if sawFinal {
             // Regroup every line by voice, so earlier speaker mistakes get fixed too (ADR-027).
             state = assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount))
+            syncSpeakers()
         }
         apply(state)
         if sawFinal { scheduleProofreading() }

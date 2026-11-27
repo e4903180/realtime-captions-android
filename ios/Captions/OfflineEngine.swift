@@ -20,6 +20,8 @@ final class OfflineEngine {
     var onRevision: ((Int, String) -> Void)?
 
     let hasSpeakers: Bool
+    /// Live speaker grouping; the view model syncs it after regrouping (ADR-027).
+    let clusterer = IosBridgeKt.createSpeakerClusterer(threshold: OfflineEngine.speakerThreshold)
     let backgroundFilter: Bool
 
     init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil, registry: VoiceRegistry? = nil, backgroundFilter: Bool = false) {
@@ -30,7 +32,7 @@ final class OfflineEngine {
             asr: SherpaAsr(models: models),
             vad: SherpaVad(models: models),
             embedder: speakers ? SherpaEmbedder(models: models) : nil,
-            speakerThreshold: Self.speakerThreshold,
+            clusterer: clusterer,
             keepAudio: secondPass != nil,
             registry: speakers ? registry : nil,
             backgroundFilter: backgroundFilter
