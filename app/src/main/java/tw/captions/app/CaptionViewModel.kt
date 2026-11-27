@@ -33,6 +33,15 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** 說話者辨識 (ADR-033): off = no speaker model, no labels. */
+    val speakersOn: Boolean = true,
+    /** 說話人數: 0 = automatic, 2..6 = fixed; finished lines are regrouped by voice (ADR-027). */
+    val speakerCount: Int = 0,
+    /** Dark / light: follow the system (default) or fixed (ADR-031). */
+    val appearance: tw.captions.app.ui.Appearance = tw.captions.app.ui.Appearance.SYSTEM,
+    /** Saved transcripts, newest first (ADR-029). */
+    val transcripts: List<tw.captions.core.Transcript> = emptyList(),
+    val transcriptsEnabled: Boolean = true,
     /** 看電視: show everything (TV speech included) in a few large lines; filters pause (ADR-032). */
     val tvMode: Boolean = false,
     /** Background-speech filter: off (default), dim, or hide. */
@@ -67,6 +76,11 @@ data class UiState(
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
+    private companion object {
+        /** Same as iPhone (ADR-027). */
+        const val RECLUSTER_THRESHOLD = 0.45f
+    }
+
     private val models = ModelStore(app)
 
     /** Debug builds only: play this wav file instead of using the microphone (see README). */
@@ -75,11 +89,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val registry = tw.captions.core.VoiceRegistry()
 
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
+            speakersOn = { _ui.value.speakersOn },
         ),
     )
 
@@ -89,7 +104,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val usageStore = tw.captions.app.settings.UsageStore(app)
 
-    private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan))
+    private val transcriptStore = tw.captions.app.history.TranscriptStore(app)
+
+    private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan), mergeGapSec = 1.5)
 
     init {
         // Load the conversion tables off the main thread before the first caption needs them.
@@ -115,7 +132,96 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         refreshKeys()
         loadPeople()
         _ui.update { it.copy(usage = usageStore.load(), usagePrices = usageStore.loadPrices(), today = usageStore.today()) }
+        _ui.update { it.copy(transcriptsEnabled = transcriptStore.enabled) }
+        val appearance = runCatching { tw.captions.app.ui.Appearance.valueOf(prefs.getString("appearance", "SYSTEM")!!) }
+            .getOrDefault(tw.captions.app.ui.Appearance.SYSTEM)
+        _ui.update { it.copy(appearance = appearance) }
+        _ui.update { it.copy(speakersOn = prefs.getBoolean("speakers_on", true), speakerCount = prefs.getInt("speaker_count", 0)) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = transcriptStore.loadAll()
+            _ui.update { it.copy(transcripts = all) }
+        }
     }
+
+    // ---- Transcripts (ADR-029): every start…stop is saved on the phone ----
+
+    /** Follows the current recording; kept after stop so later corrections still reach it. */
+    private var recorder: tw.captions.core.TranscriptRecorder? = null
+    private var unsavedChanges = 0
+    private var lastSaveMs = 0L
+
+    private fun lineRows(): List<Triple<Long, String?, String>> =
+        _ui.value.captions.lines.mapIndexed { i, l ->
+            Triple(assembler.lineId(i), l.speakerName ?: if (l.background) "背景" else l.speaker?.label, l.text)
+        }
+
+    private fun beginTranscript(engineId: String) {
+        recorder = null
+        if (!transcriptStore.enabled) return
+        val name = EngineCatalog.byId(engineId)?.name ?: engineId
+        recorder = tw.captions.core.TranscriptRecorder(
+            id = java.util.UUID.randomUUID().toString(),
+            startedMs = System.currentTimeMillis(),
+            engine = name,
+            existing = lineRows().map { it.first to it.third },
+        )
+        unsavedChanges = 0
+        lastSaveMs = System.currentTimeMillis()
+    }
+
+    /** Called whenever caption lines change. Saves every 3 lines or 20 s, so a crash loses little. */
+    private fun recordLines() {
+        val r = recorder ?: return
+        val now = System.currentTimeMillis()
+        if (!r.update(lineRows(), now, recording = job != null)) return
+        unsavedChanges++
+        if (job == null || unsavedChanges >= 3 || now - lastSaveMs > 20_000) saveTranscript()
+    }
+
+    private fun saveTranscript() {
+        val t = recorder?.transcript ?: return
+        if (t.lines.isEmpty()) return
+        unsavedChanges = 0
+        lastSaveMs = System.currentTimeMillis()
+        _ui.update { s -> s.copy(transcripts = (listOf(t) + s.transcripts.filter { it.id != t.id }).sortedByDescending { it.startedMs }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(t) }
+    }
+
+    private fun finishTranscript() {
+        val r = recorder ?: return
+        r.update(lineRows(), System.currentTimeMillis(), recording = true)
+        r.finish(System.currentTimeMillis())
+        saveTranscript()
+    }
+
+    fun renameTranscript(id: String, title: String) {
+        val t = _ui.value.transcripts.firstOrNull { it.id == id } ?: return
+        val renamed = t.copy(title = title.trim().ifEmpty { null })
+        if (recorder?.transcript?.id == id) recorder?.rename(renamed.title)
+        _ui.update { s -> s.copy(transcripts = s.transcripts.map { if (it.id == id) renamed else it }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(renamed) }
+    }
+
+    fun deleteTranscript(id: String) {
+        if (recorder?.transcript?.id == id) recorder = null
+        _ui.update { s -> s.copy(transcripts = s.transcripts.filter { it.id != id }) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.delete(id) }
+    }
+
+    fun deleteAllTranscripts() {
+        recorder = null
+        _ui.update { it.copy(transcripts = emptyList()) }
+        viewModelScope.launch(Dispatchers.IO) { transcriptStore.deleteAll() }
+    }
+
+    fun setTranscriptsEnabled(on: Boolean) {
+        transcriptStore.enabled = on
+        if (!on) recorder = null
+        _ui.update { it.copy(transcriptsEnabled = on) }
+    }
+
+    fun transcriptText(t: tw.captions.core.Transcript, srt: Boolean): String =
+        if (srt) t.srt() else tw.captions.app.history.TranscriptStore.plainText(t)
 
     // ---- Cloud usage (ADR-028): audio seconds sent to Azure, written every 10 s and on stop ----
 
@@ -206,6 +312,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         registry.add(name.trim(), voice)
         savePeople()
         _ui.update { it.copy(captions = assembler.nameLine(index, name.trim())) }
+        recordLines()
         // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
         if (first && !_ui.value.tvMode && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
     }
@@ -301,6 +408,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _ui.update { it.copy(running = true) }
+        beginTranscript(engine.id)
         if (EngineCatalog.byId(engine.id)?.paid == true) {
             cloudTimer?.cancel()
             cloudTimer = viewModelScope.launch {
@@ -318,8 +426,14 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         self = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 engine.transcribe(RecognitionConfig(languageTag = "zh-TW")).collect { event ->
-                    val captions = assembler.onEvent(event)
+                    var captions = assembler.onEvent(event)
+                    // Regroup every line by voice after each finished one, so earlier speaker
+                    // mistakes get fixed too (ADR-027).
+                    if (event is tw.captions.core.TranscriptEvent.Final && _ui.value.speakersOn) {
+                        captions = assembler.recluster(RECLUSTER_THRESHOLD, _ui.value.speakerCount)
+                    }
                     _ui.update { it.copy(captions = captions) }
+                    recordLines()
                 }
             } finally {
                 // The engine stopped by itself (e.g. a fatal error), not via stop().
@@ -395,6 +509,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private fun markStopped() {
         cloudTimer?.cancel()
         flushUsage()
+        finishTranscript()
         _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 
@@ -421,6 +536,25 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         assembler.backgroundMode = if (on) tw.captions.core.BackgroundMode.OFF else _ui.value.backgroundMode
         prefs.edit().putBoolean("tv_mode", on).apply()
         _ui.update { it.copy(tvMode = on) }
+    }
+
+    fun setSpeakersOn(on: Boolean) {
+        prefs.edit().putBoolean("speakers_on", on).apply()
+        val wasRunning = job != null
+        if (wasRunning) stop()
+        _ui.update { it.copy(speakersOn = on) }
+        if (wasRunning) start()
+    }
+
+    fun setSpeakerCount(n: Int) {
+        prefs.edit().putInt("speaker_count", n).apply()
+        _ui.update { it.copy(speakerCount = n, captions = assembler.recluster(RECLUSTER_THRESHOLD, n)) }
+        recordLines()
+    }
+
+    fun setAppearance(a: tw.captions.app.ui.Appearance) {
+        prefs.edit().putString("appearance", a.name).apply()
+        _ui.update { it.copy(appearance = a) }
     }
 
     fun changeFontSize(deltaSp: Int) {

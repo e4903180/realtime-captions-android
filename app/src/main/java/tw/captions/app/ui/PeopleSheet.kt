@@ -23,19 +23,19 @@ import tw.captions.app.UiState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeopleSheet(ui: UiState, onDismiss: () -> Unit, onForget: (Int) -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF1C1C1C)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = LocalPalette.current.surface) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("認得的人", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("認得的人", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(
                 "在字幕上長按一句話，告訴 App 是誰說的，它就會記住這個聲音，之後自動顯示名字。" +
                     "有認得的人之後，不認得的聲音（電視、隔壁桌）會依「背景過濾」淡化或隱藏。聲音特徵只存在這支手機上。",
-                color = Color(0xFFB0B0B0), fontSize = 15.sp,
+                color = LocalPalette.current.sub, fontSize = 15.sp,
             )
-            if (ui.people.isEmpty()) Text("還沒有認得的人。", color = Color(0xFFB0B0B0), fontSize = 16.sp)
+            if (ui.people.isEmpty()) Text("還沒有認得的人。", color = LocalPalette.current.sub, fontSize = 16.sp)
             ui.people.forEach { (id, name) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, color = Color.White, fontSize = 19.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onForget(id) }) { Text("忘記", color = Color(0xFFFF8A80)) }
+                    Text(name, color = Ink, fontSize = 19.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onForget(id) }) { Text("忘記", color = LocalPalette.current.error) }
                 }
             }
             Text(" ", fontSize = 8.sp)

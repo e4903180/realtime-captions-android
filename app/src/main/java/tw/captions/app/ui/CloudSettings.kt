@@ -41,8 +41,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 
-private val Sub = Color(0xFFB0B0B0)
-private val Accent = Color(0xFF66BB6A)
+private val Sub: Color @Composable get() = LocalPalette.current.sub
+private val Accent: Color @Composable get() = LocalPalette.current.accent
 
 /** Where users enter their own cloud API keys. Keys are stored encrypted on the phone only. */
 @Composable
@@ -59,15 +59,15 @@ fun CloudSettings(
         Column(
             Modifier
                 .fillMaxSize()
-                .background(Color(0xFF121212))
+                .background(LocalPalette.current.surface)
                 .safeDrawingPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("雲端服務設定", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("完成", color = Color.White, fontSize = 18.sp) }
+                Text("雲端服務設定", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = onDismiss) { Text("完成", color = Ink, fontSize = 18.sp) }
             }
             Text(
                 "使用你自己的雲端帳號。金鑰經過加密，只存在這支手機上，只會傳給它所屬的服務，不會上傳到其他地方。",
@@ -95,15 +95,15 @@ private fun AzureCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+            .border(1.dp, LocalPalette.current.border, RoundedCornerShape(12.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Azure 語音服務", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Azure 語音服務", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text("台灣腔最準（錯字率約 5%），會標示說話者。按使用時間計費，約 US\$1.3／小時；免費方案每月 5 小時。", color = Sub, fontSize = 15.sp)
         Text(
             if (ui.azureKeyHint != null) "目前金鑰：${ui.azureKeyHint}（${regionName(ui.azureRegion)}）" else "尚未設定金鑰",
-            color = if (ui.azureKeyHint != null) Accent else Color(0xFFFFB74D), fontSize = 16.sp,
+            color = if (ui.azureKeyHint != null) Accent else LocalPalette.current.warn, fontSize = 16.sp,
         )
         OutlinedTextField(
             value = key,
@@ -120,7 +120,7 @@ private fun AzureCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RadioButton(selected = region == id, onClick = { region = id })
-                Text(name, color = Color.White, fontSize = 16.sp)
+                Text(name, color = Ink, fontSize = 16.sp)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,14 +128,14 @@ private fun AzureCard(
                 Text("儲存")
             }
             OutlinedButton(onClick = onTest, enabled = ui.azureKeyHint != null && !ui.cloudTesting) {
-                Text(if (ui.cloudTesting) "測試中…" else "測試連線", color = Color.White)
+                Text(if (ui.cloudTesting) "測試中…" else "測試連線", color = Ink)
             }
             if (ui.azureKeyHint != null) {
-                TextButton(onClick = onRemove) { Text("刪除金鑰", color = Color(0xFFFF8A80)) }
+                TextButton(onClick = onRemove) { Text("刪除金鑰", color = LocalPalette.current.error) }
             }
         }
-        ui.cloudTestMessage?.let { Text(it, color = if (it.startsWith("可以使用")) Accent else Color(0xFFFF8A80), fontSize = 15.sp) }
-        Text("怎麼取得金鑰", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        ui.cloudTestMessage?.let { Text(it, color = if (it.startsWith("可以使用")) Accent else LocalPalette.current.error, fontSize = 15.sp) }
+        Text("怎麼取得金鑰", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         SelectionContainer {
             Text(
                 "1. 到 portal.azure.com 註冊（有免費試用）。\n" +
@@ -162,29 +162,29 @@ private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onR
     Column(
         Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+            .border(1.dp, LocalPalette.current.border, RoundedCornerShape(12.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("雲端用量與費用", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("雲端用量與費用", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CloudUsage.Range.entries.forEach { r ->
                 if (r == range) {
                     Button(onClick = { range = r }) { Text(r.label) }
                 } else {
-                    OutlinedButton(onClick = { range = r }) { Text(r.label, color = Color.White) }
+                    OutlinedButton(onClick = { range = r }) { Text(r.label, color = Ink) }
                 }
             }
         }
-        Text("Azure 辨識：${formatDuration(seconds)}", color = Color.White, fontSize = 18.sp)
-        Text("估計費用：US\$${"%.2f".format(cost)}", color = Color.White, fontSize = 18.sp)
+        Text("Azure 辨識：${formatDuration(seconds)}", color = Ink, fontSize = 18.sp)
+        Text("估計費用：US\$${"%.2f".format(cost)}", color = Ink, fontSize = 18.sp)
         Text(
             "計費標準：Azure 即時辨識照使用時間計費，約 US\$${"%.2f".format(ui.usagePrices.azurePerHour)}／小時" +
                 (if (ui.usagePrices.azureFreeTier) "，免費方案（F0）每月前 5 小時不計費。" else "。") +
                 "\n本月目前預估：US\$${"%.2f".format(ui.usage.azureCost(CloudUsage.Range.MONTH, today, ui.usagePrices))}",
             color = Sub, fontSize = 15.sp,
         )
-        Text("單價", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("單價", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = price,
             onValueChange = { v ->
@@ -217,7 +217,7 @@ private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onR
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = ui.usagePrices.azureFreeTier, onCheckedChange = { onSetPrices(ui.usagePrices.copy(azureFreeTier = it)) })
-            Text("免費方案（F0）：每月前 5 小時不計費", color = Color.White, fontSize = 15.sp)
+            Text("免費方案（F0）：每月前 5 小時不計費", color = Ink, fontSize = 15.sp)
         }
         Text(
             "這是這支手機的估計值，照使用雲端辨識的時間計算。實際帳單請看 Azure 入口網站的「成本管理」；同一組金鑰在其他裝置的用量不會算進來。",
@@ -225,12 +225,12 @@ private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onR
         )
         if (confirmReset) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("確定清除所有用量紀錄？", color = Color.White, fontSize = 15.sp)
-                TextButton(onClick = { onReset(); confirmReset = false }) { Text("清除", color = Color(0xFFFF8A80)) }
-                TextButton(onClick = { confirmReset = false }) { Text("取消", color = Color.White) }
+                Text("確定清除所有用量紀錄？", color = Ink, fontSize = 15.sp)
+                TextButton(onClick = { onReset(); confirmReset = false }) { Text("清除", color = LocalPalette.current.error) }
+                TextButton(onClick = { confirmReset = false }) { Text("取消", color = Ink) }
             }
         } else {
-            TextButton(onClick = { confirmReset = true }) { Text("用量歸零", color = Color(0xFFFF8A80)) }
+            TextButton(onClick = { confirmReset = true }) { Text("用量歸零", color = LocalPalette.current.error) }
         }
     }
 }

@@ -49,9 +49,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            tw.captions.app.ui.AppTheme(ui.appearance) {
             var showEngines by remember { mutableStateOf(false) }
             var showSettings by remember { mutableStateOf(false) }
             var showPeople by remember { mutableStateOf(false) }
+            var showTranscripts by remember { mutableStateOf(false) }
             CaptionScreen(
                 ui = ui,
                 engines = viewModel.engines,
@@ -61,6 +63,7 @@ class MainActivity : ComponentActivity() {
                 onOpenSettings = { showSettings = true },
                 onToggleBackground = viewModel::toggleBackground,
                 onToggleTv = viewModel::toggleTvMode,
+                onOpenTranscripts = { showTranscripts = true },
                 onNameLine = viewModel::nameLine,
                 onOpenPeople = { showPeople = true },
                 onClear = viewModel::clear,
@@ -75,10 +78,24 @@ class MainActivity : ComponentActivity() {
                     onCancelDownload = viewModel::cancelDownload,
                     onUninstall = viewModel::uninstall,
                     onOpenSettings = { showEngines = false; showSettings = true },
+                    onAppearance = viewModel::setAppearance,
+                    onSpeakersOn = viewModel::setSpeakersOn,
+                    onSpeakerCount = viewModel::setSpeakerCount,
                 )
             }
             if (showPeople) {
                 tw.captions.app.ui.PeopleSheet(ui = ui, onDismiss = { showPeople = false }, onForget = viewModel::forgetPerson)
+            }
+            if (showTranscripts) {
+                tw.captions.app.ui.TranscriptsScreen(
+                    ui = ui,
+                    onDismiss = { showTranscripts = false },
+                    onRename = viewModel::renameTranscript,
+                    onDelete = viewModel::deleteTranscript,
+                    onDeleteAll = viewModel::deleteAllTranscripts,
+                    onSetEnabled = viewModel::setTranscriptsEnabled,
+                    exportText = viewModel::transcriptText,
+                )
             }
             if (ui.usageLimitHit) {
                 androidx.compose.material3.AlertDialog(
@@ -107,6 +124,7 @@ class MainActivity : ComponentActivity() {
                     onSetPrices = viewModel::setUsagePrices,
                     onResetUsage = viewModel::resetUsage,
                 )
+            }
             }
         }
     }

@@ -34,6 +34,8 @@ import kotlin.math.sqrt
 class AzureSpeechEngine(
     private val credentials: () -> Pair<String, String>?,
     private val openInput: () -> AudioInput,
+    /** 說話者辨識 on/off (ADR-033): off drops Azure's speaker labels. */
+    private val speakersOn: () -> Boolean = { true },
 ) : SpeechEngine {
     override val id = ID
     override val displayName = "Azure 雲端"
@@ -83,7 +85,8 @@ class AzureSpeechEngine(
         val stream = PushAudioInputStream.create(AudioStreamFormat.getWaveFormatPCM(SAMPLE_RATE.toLong(), 16.toShort(), 1.toShort()))
         val transcriber = ConversationTranscriber(speechConfig, AudioConfig.fromStreamInput(stream))
 
-        fun speaker(id: String?): SpeakerId? = id?.substringAfter("Guest-", "")?.toIntOrNull()?.let { SpeakerId(it - 1) }
+        val withSpeakers = speakersOn()
+        fun speaker(id: String?): SpeakerId? = if (!withSpeakers) null else id?.substringAfter("Guest-", "")?.toIntOrNull()?.let { SpeakerId(it - 1) }
 
         transcriber.transcribing.addEventListener { _, e ->
             e.result.text?.takeIf { it.isNotBlank() }?.let { trySend(TranscriptEvent.Partial(it, speaker(e.result.speakerId))) }
