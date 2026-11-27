@@ -8,7 +8,9 @@ enum KeyVault {
     static let anthropicKey = "anthropic_key"
     private static let service = "tw.captions.keys"
 
-    static func put(_ name: String, _ value: String) {
+    /// Returns the Keychain status (errSecSuccess when saved).
+    @discardableResult
+    static func put(_ name: String, _ value: String) -> OSStatus {
         remove(name)
         let item: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -17,7 +19,7 @@ enum KeyVault {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: Data(value.utf8),
         ]
-        SecItemAdd(item as CFDictionary, nil)
+        return SecItemAdd(item as CFDictionary, nil)
     }
 
     static func get(_ name: String) -> String? {

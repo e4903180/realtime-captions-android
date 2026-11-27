@@ -1,3 +1,4 @@
+import Security
 import SwiftUI
 
 /// The user's own cloud keys (same wording as the Android app's CloudSettings screen).
@@ -56,7 +57,7 @@ struct CloudSettingsView: View {
 
     private func save() {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { KeyVault.put(KeyVault.azureKey, trimmed) }
+        if !trimmed.isEmpty, KeyVault.put(KeyVault.azureKey, trimmed) != errSecSuccess { message = "無法存入鑰匙圈，請再試一次"; return }
         UserDefaults.standard.set(region, forKey: AzureEngine.regionDefaultsKey)
         key = ""
         hint = KeyVault.hint(KeyVault.azureKey)

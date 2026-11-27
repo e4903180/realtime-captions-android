@@ -65,10 +65,13 @@ final class CaptionsTests: XCTestCase {
         XCTAssertGreaterThan(cjk, 10, "expected Chinese text, got: \(allText)")
     }
 
-    func testKeyVaultRoundTrip() {
+    func testKeyVaultRoundTrip() throws {
         let name = "test_key_\(UUID().uuidString)"
         XCTAssertNil(KeyVault.get(name))
-        KeyVault.put(name, "abcd1234")
+        let status = KeyVault.put(name, "abcd1234")
+        // CI builds the test host unsigned, and an unsigned app has no Keychain access.
+        if status == errSecMissingEntitlement { throw XCTSkip("Keychain needs a signed app (CI builds unsigned)") }
+        XCTAssertEqual(status, errSecSuccess)
         XCTAssertEqual(KeyVault.get(name), "abcd1234")
         XCTAssertEqual(KeyVault.hint(name), "••••1234")
         KeyVault.remove(name)

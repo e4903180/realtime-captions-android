@@ -1,3 +1,4 @@
+import Security
 import CaptionsCore
 import SwiftUI
 
@@ -66,7 +67,7 @@ struct CorrectionSettingsView: View {
     private func save() {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        KeyVault.put(KeyVault.anthropicKey, trimmed)
+        guard KeyVault.put(KeyVault.anthropicKey, trimmed) == errSecSuccess else { message = "無法存入鑰匙圈，請再試一次"; return }
         key = ""
         hint = KeyVault.hint(KeyVault.anthropicKey)
         message = "已儲存"
