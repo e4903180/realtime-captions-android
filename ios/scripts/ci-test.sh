@@ -32,7 +32,7 @@ xcodegen generate
 
 # API surface of the vendored SDKs, printed so a compile error can be matched against it.
 grep -rh -E "Transcribing|resultReceivedHandler" Vendor/MicrosoftCognitiveServicesSpeech.xcframework/ios-arm64*/MicrosoftCognitiveServicesSpeech.framework/Headers/SPXConversationTranscriber.h 2>/dev/null | head -20 || true
-grep -n -E "^func sherpaOnnxOffline(ModelConfig|RecognizerConfig|SenseVoiceModelConfig|ParaformerModelConfig)|^class SherpaOnnxOfflineRecognizer|func decode\(samples" Vendor/SherpaOnnx.swift | head -20 || true
+awk '/func sherpaOnnxOffline(ModelConfig|RecognizerConfig|SenseVoiceModelConfig|ParaformerModelConfig)\(/{p=1} p{print NR": "$0} /\) -> /{p=0}' Vendor/SherpaOnnx.swift | head -80 || true
 
 # Unsigned build for a real iPhone: checks that every library links for arm64 devices.
 xcodebuild build -project Captions.xcodeproj -scheme Captions -configuration Release \

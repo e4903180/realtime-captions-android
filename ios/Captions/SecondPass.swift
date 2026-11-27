@@ -33,20 +33,17 @@ final class SherpaSecondPass {
     init(directory: URL) {
         let modelPath = SecondPassModel.model(in: directory).path
         let tokens = SecondPassModel.tokens(in: directory).path
-        let modelConfig: SherpaOnnxOfflineModelConfig
-        if SecondPassModel.kind == "paraformer" {
-            modelConfig = sherpaOnnxOfflineModelConfig(
+        let modelConfig = SecondPassModel.kind == "paraformer"
+            ? sherpaOnnxOfflineModelConfig(
                 tokens: tokens,
                 paraformer: sherpaOnnxOfflineParaformerModelConfig(model: modelPath),
                 numThreads: 2
             )
-        } else {
-            modelConfig = sherpaOnnxOfflineModelConfig(
+            : sherpaOnnxOfflineModelConfig(
                 tokens: tokens,
                 numThreads: 2,
                 senseVoice: sherpaOnnxOfflineSenseVoiceModelConfig(model: modelPath, language: "zh", useInverseTextNormalization: true)
             )
-        }
         var config = sherpaOnnxOfflineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: Sherpa.sampleRate, featureDim: 80),
             modelConfig: modelConfig

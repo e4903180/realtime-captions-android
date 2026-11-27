@@ -106,7 +106,8 @@ enum Proofreader {
         case 401: return "金鑰不對，請重新貼上"
         case 403: return "這組金鑰沒有權限使用這個模型"
         case 429: return "用量太多，請稍後再試"
-        case 402, 400 where String(data: data, encoding: .utf8)?.contains("credit") == true: return "帳號額度不足，請到 Anthropic 主控台儲值"
+        case 402: return "帳號額度不足，請到 Anthropic 主控台儲值"
+        case 400 where String(data: data, encoding: .utf8)?.contains("credit") == true: return "帳號額度不足，請到 Anthropic 主控台儲值"
         default: return "校稿服務錯誤（\(status)）"
         }
     }
