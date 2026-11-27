@@ -79,6 +79,11 @@ data class PipelineConfig(
     val shortPauseSec: Float = 0.15f,
     /** Emit [TranscriptEvent.NoSpeechDetected] after this much silence in a row. */
     val noSpeechHintSec: Float = 6f,
+    /**
+     * Lines this much quieter than the conversation are marked as background (TV, other people
+     * nearby). Null turns the focus filter off. See [FocusTracker].
+     */
+    val focusMarginDb: Float? = 8f,
 )
 
 /**
@@ -93,6 +98,8 @@ class StreamingPipeline(
     private val clusterer: SpeakerClusterer = SpeakerClusterer(),
     private val config: PipelineConfig = PipelineConfig(),
     private val enhancer: AudioEnhancer? = null,
+    /** People the user registered; when non-empty, voices nobody registered count as background. */
+    private val registry: VoiceRegistry? = null,
 ) {
     private val speech = SampleBuffer((config.maxSpeakerSec * config.sampleRate).toInt())
     private var lastText = ""
@@ -102,6 +109,9 @@ class StreamingPipeline(
     private var quietSec = 0f
     private var unchangedSec = 0f
     private var lineSec = 0f
+    private var provisionalName: String? = null
+    private var provisionalUnknown = false
+    private val focus = config.focusMarginDb?.let { FocusTracker(marginDb = it) }
     private var started = false
 
     /** Seconds of audio consumed so far. */
@@ -109,6 +119,7 @@ class StreamingPipeline(
         private set
 
     fun reset() {
+        focus?.reset()
         enhancer?.reset()
         asr.reset()
         vad?.reset()
@@ -168,7 +179,14 @@ class StreamingPipeline(
             ) {
                 provisional = clusterer.peek(embedder.embed(speech.toArray()))
             }
-            out += TranscriptEvent.Partial(text, provisional)
+            val known = registry?.takeIf { !it.isEmpty && embedder != null && speech.size >= config.provisionalSpeakerSec * config.sampleRate }
+            if (known != null && provisionalName == null && !provisionalUnknown) {
+                val person = known.match(embedder!!.embed(speech.toArray()))
+                if (person != null) provisionalName = person.name else provisionalUnknown = true
+            }
+            val bg = provisionalUnknown || (provisionalName == null && focus != null && speech.size >= config.sampleRate / 2 &&
+                focus.isBackground(FocusTracker.levelDb(speech.toArray())))
+            out += TranscriptEvent.Partial(text, if (bg) null else provisional, background = bg, speakerName = provisionalName)
         }
 
         if (text.isNotEmpty()) lineSec += chunkSec
@@ -190,14 +208,23 @@ class StreamingPipeline(
 
     private fun finishUtterance(text: String): TranscriptEvent.Final? {
         val final = if (text.isNotEmpty()) {
+            val samples = speech.toArray()
+            val voice = if (embedder != null && speech.size >= config.minSpeakerSec * config.sampleRate) embedder.embed(samples) else null
+            val known = registry?.takeIf { !it.isEmpty }
+            val person = if (known != null && voice != null) known.match(voice) else null
+            val background = when {
+                // With registered people, the voice decides: nobody known means background.
+                known != null && voice != null -> person == null
+                known != null && provisionalUnknown -> true
+                else -> focus != null && samples.isNotEmpty() && focus.observe(FocusTracker.levelDb(samples))
+            }
             val speaker = when {
-                embedder == null -> null
-                speech.size >= config.minSpeakerSec * config.sampleRate ->
-                    clusterer.assign(embedder.embed(speech.toArray()), allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
+                background || embedder == null -> null
+                voice != null -> clusterer.assign(voice, allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
                 else -> provisional ?: lastSpeaker
             }
             if (speaker != null) lastSpeaker = speaker
-            TranscriptEvent.Final(text, speaker)
+            TranscriptEvent.Final(text, speaker, background, speakerName = person?.name ?: provisionalName.takeIf { voice == null }, voice = voice)
         } else {
             null
         }
@@ -207,6 +234,8 @@ class StreamingPipeline(
         unchangedSec = 0f
         lineSec = 0f
         provisional = null
+        provisionalName = null
+        provisionalUnknown = false
         return final
     }
 

@@ -58,7 +58,15 @@ data class SpeakerModel(val name: String, val file: String) {
 
 const val SILERO_VAD = "silero_vad.onnx"
 
-class SherpaAsr(model: AsrModel, modelsDir: File, numThreads: Int = 2, trailingSilenceSec: Float = 0.8f) : StreamingAsr, AutoCloseable {
+class SherpaAsr(
+    model: AsrModel,
+    modelsDir: File,
+    numThreads: Int = 2,
+    trailingSilenceSec: Float = 0.8f,
+    /** Words to favour (one per line); switches to modified beam search. Needs bpe.vocab next to the model. */
+    hotwords: File? = null,
+    beam: Boolean = false,
+) : StreamingAsr, AutoCloseable {
     private val recognizer: OnlineRecognizer
     private val stream: OnlineStream
 
@@ -78,6 +86,7 @@ class SherpaAsr(model: AsrModel, modelsDir: File, numThreads: Int = 2, trailingS
                     )
                     .setTokens(path(model.tokens))
                     .setNumThreads(numThreads)
+                    .apply { if (hotwords != null) setModelingUnit("bpe").setBpeVocab(File(dir, "bpe.vocab").path) }
                     .build(),
             )
             .setEnableEndpoint(true)
@@ -88,7 +97,9 @@ class SherpaAsr(model: AsrModel, modelsDir: File, numThreads: Int = 2, trailingS
                     .setRule3(EndpointRule.builder().setMustContainNonSilence(false).setMinTrailingSilence(0f).setMinUtteranceLength(20f).build())
                     .build(),
             )
-            .setDecodingMethod("greedy_search")
+            .setDecodingMethod(if (hotwords != null || beam) "modified_beam_search" else "greedy_search")
+            .setMaxActivePaths(4)
+            .apply { if (hotwords != null) setHotwordsFile(hotwords.path).setHotwordsScore(1.5f) }
             .build()
         recognizer = OnlineRecognizer(config)
         stream = recognizer.createStream()
@@ -134,10 +145,14 @@ class SherpaVad(modelsDir: File, minSilenceSec: Float = 0.25f, private val thres
         // min-speech / min-silence smoothing: the pipeline does its own hangover, and reacting
         // to speech onsets right away keeps it from ending an utterance as the next one starts.
         pending.add(samples)
-        speech = false
+        // With chunks shorter than one 512-sample window, keep the last decision until a window is complete.
+        var any = false
+        var voiced = false
         while (pending.size >= 512) {
-            if (vad.compute(pending.take(512)) >= threshold) speech = true
+            any = true
+            if (vad.compute(pending.take(512)) >= threshold) voiced = true
         }
+        if (any) speech = voiced
     }
 
     override fun isSpeech(): Boolean = speech

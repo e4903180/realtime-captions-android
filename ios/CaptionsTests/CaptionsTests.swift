@@ -17,7 +17,7 @@ final class CaptionsTests: XCTestCase {
 
     func testAssemblerCleansUpText() {
         let assembler = IosBridgeKt.createCaptionAssembler(converter: TaiwanChinese.makeConverter())
-        let state = assembler.onEvent(event: TranscriptEventFinal(text: "我们 坐 出租车 去,好吗?", speaker: nil))
+        let state = assembler.onEvent(event: TranscriptEventFinal(text: "我们 坐 出租车 去,好吗?", speaker: nil, background: false, speakerName: nil, voice: nil))
         XCTAssertEqual(state.lines.map(\.text), ["我們坐計程車去，好嗎？"])
     }
 
@@ -57,7 +57,7 @@ final class CaptionsTests: XCTestCase {
             let finals = engine.transcribe(samples: samples)
             let seconds = Date().timeIntervalSince(start)
             let audioSeconds = Double(samples.count) / 16_000
-            let text = finals.map { "[\(IosBridgeKt.speakerLabelOf(line: CaptionLine(text: "", speaker: $0.speaker)) ?? "-")] \(converter.toTraditional(text: $0.text))" }
+            let text = finals.map { "[\(IosBridgeKt.speakerLabelOf(line: CaptionLine(text: "", speaker: $0.speaker, background: false, speakerName: nil, voice: nil)) ?? "-")] \(converter.toTraditional(text: $0.text))" }
             print("test\(i).wav \(String(format: "%.1f", audioSeconds)) s audio, RTF \(String(format: "%.2f", seconds / audioSeconds)): \(text.joined(separator: " / "))")
             allText += finals.map(\.text).joined()
         }

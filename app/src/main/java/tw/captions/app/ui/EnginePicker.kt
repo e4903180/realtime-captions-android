@@ -68,7 +68,27 @@ fun EnginePicker(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("選擇辨識引擎", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            EngineCatalog.ALL.forEach { info ->
+            // Two kinds: models that run on the phone, and cloud services with the user's own key.
+            var tab by remember { mutableStateOf(if (EngineCatalog.byId(ui.engineId)?.offline == false) 1 else 0) }
+            androidx.compose.material3.TabRow(
+                selectedTabIndex = tab,
+                containerColor = SheetBg,
+                contentColor = Color.White,
+            ) {
+                listOf("離線（在手機上）", "雲端").forEachIndexed { i, label ->
+                    androidx.compose.material3.Tab(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        text = { Text(label, fontSize = 17.sp) },
+                    )
+                }
+            }
+            Text(
+                if (tab == 0) "模型下載到手機後就不用網路，也不花錢。只下載你要用的模型，不用時可以移除。"
+                else "使用雲端公司的辨識服務，需要網路和你自己的帳號金鑰，按使用時間計費。",
+                color = Sub, fontSize = 15.sp,
+            )
+            EngineCatalog.ALL.filter { it.offline == (tab == 0) }.forEach { info ->
                 EngineRow(
                     info = info,
                     selected = ui.engineId == info.id,
@@ -76,11 +96,15 @@ fun EnginePicker(
                     downloading = ui.downloadingEngine == info.id,
                     progress = ui.modelDownload,
                     freeBytes = ui.freeableBytes[info.id],
+                    downloadBytes = ui.downloadBytes[info.id],
                     onSelect = { onSelect(info.id) },
                     onDownload = { onDownload(info.id) },
                     onCancel = onCancelDownload,
                     onRemove = { confirmRemove = info },
-                    keyHint = if (info.needsKey) ui.azureKeyHint else null,
+                    keyHint = when (info.id) {
+                        tw.captions.app.engine.AzureSpeechEngine.ID -> ui.azureKeyHint
+                        else -> null
+                    },
                     onOpenSettings = onOpenSettings,
                 )
             }
@@ -111,6 +135,7 @@ private fun EngineRow(
     downloading: Boolean,
     progress: Float?,
     freeBytes: Long?,
+    downloadBytes: Long?,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
@@ -140,7 +165,7 @@ private fun EngineRow(
             Badge(if (info.offline) "不用網路" else "需要網路", Sub)
             if (info.speakerTags) Badge("說話者標籤", Sub)
             if (info.paid) Badge("付費", Color(0xFFFFB74D))
-            if (info.packs.isNotEmpty()) Badge("下載約 ${mb(info.packs.sumOf { it.downloadBytes })}", Sub)
+            if (info.packs.isNotEmpty() && !installed) Badge("下載約 ${mb(downloadBytes ?: info.packs.sumOf { it.downloadBytes })}", Sub)
         }
         if (info.needsKey) {
             Row(verticalAlignment = Alignment.CenterVertically) {

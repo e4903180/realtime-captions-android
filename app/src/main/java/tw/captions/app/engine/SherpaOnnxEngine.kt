@@ -47,6 +47,8 @@ class SherpaOnnxEngine(
     private val speakerThreshold: Float = 0.5f,
     /** Run the GTCRN speech-enhancement model before recognition (see docs/benchmark-noise.md). */
     private val useDenoiser: Boolean = DENOISER_DEFAULT,
+    /** People the user taught the app to recognise (認聲音). */
+    private val registry: tw.captions.core.VoiceRegistry? = null,
 ) : SpeechEngine {
     override val id = variant.id
     override val displayName = variant.displayName
@@ -86,8 +88,9 @@ class SherpaOnnxEngine(
             return@flow
         }
         try {
-            val pipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold), enhancer = denoiser)
-            val chunk = FloatArray(SAMPLE_RATE / 10) // 100 ms
+            val pipeline = StreamingPipeline(asr, vad, embedder, SpeakerClusterer(speakerThreshold), enhancer = denoiser, registry = registry)
+            // 20 ms chunks: the first words appear ~0.04 s sooner than with 100 ms (docs/latency.md).
+            val chunk = FloatArray(SAMPLE_RATE / 50)
             while (currentCoroutineContext().isActive) {
                 val n = input.read(chunk)
                 if (n < 0) break
@@ -119,7 +122,8 @@ class SherpaOnnxEngine(
                         joiner = models.file("$prefix-joiner.onnx").path,
                     ),
                     tokens = models.file("$prefix-tokens.txt").path,
-                    numThreads = 2,
+                    // 4 threads: phones are 3-5x slower than the benchmark PC, so compute matters more there.
+                    numThreads = 4,
                 ),
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 2.4f, 0f),
@@ -168,12 +172,14 @@ class SherpaOnnxEngine(
 
         override fun accept(samples: FloatArray) {
             pending += samples
-            speech = false
+            // With chunks shorter than one 512-sample window, keep the last decision until a window is complete.
             var off = 0
+            var voiced = false
             while (pending.size - off >= 512) {
-                if (vad.compute(pending.copyOfRange(off, off + 512)) >= threshold) speech = true
+                if (vad.compute(pending.copyOfRange(off, off + 512)) >= threshold) voiced = true
                 off += 512
             }
+            if (off > 0) speech = voiced
             pending = pending.copyOfRange(off, pending.size)
         }
 

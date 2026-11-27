@@ -1,6 +1,9 @@
 package tw.captions.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +49,7 @@ private val FinalText = Color.White
 private val StableText = Color(0xFFFFF59D)    // light yellow: current sentence, settled
 private val TentativeText = Color(0xFF9E9E9E) // gray: may still change
 private val ErrorText = Color(0xFFFF8A80)
+private val BackgroundText = Color(0xFF757575)
 
 @Composable
 fun CaptionScreen(
@@ -55,8 +59,11 @@ fun CaptionScreen(
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleBackground: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
+    onNameLine: (Int, String) -> Unit = { _, _ -> },
+    onOpenPeople: () -> Unit = {},
 ) {
     MaterialTheme(colorScheme = darkColorScheme(background = Background)) {
         Column(
@@ -65,7 +72,7 @@ fun CaptionScreen(
                 .background(Background)
                 .safeDrawingPadding(),
         ) {
-            Captions(ui, Modifier.weight(1f))
+            Captions(ui, Modifier.weight(1f), onNameLine)
             if (ui.running) LevelMeter(ui.captions.audioLevel)
             ui.modelDownload?.let { p ->
                 Text(
@@ -108,13 +115,16 @@ fun CaptionScreen(
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onClear, onFontSize)
+            Controls(ui, engines, onStart, onStop, onOpenEngines, onOpenSettings, onToggleBackground, onClear, onFontSize, onOpenPeople)
         }
     }
 }
 
 @Composable
-private fun Captions(ui: UiState, modifier: Modifier) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) -> Unit) {
+    var naming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Int?>(null) }
+    naming?.let { index -> NameDialog(ui, onDismiss = { naming = null }, onName = { onNameLine(index, it); naming = null }) }
     val captions = ui.captions
     val listState = rememberLazyListState()
     val hasCurrent = captions.stableText.isNotEmpty() || captions.tentativeText.isNotEmpty()
@@ -146,22 +156,32 @@ private fun Captions(ui: UiState, modifier: Modifier) {
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        itemsIndexed(captions.lines) { _, line ->
-            Text(
-                buildAnnotatedString {
-                    line.speaker?.let { speakerPrefix(it) }
-                    append(line.text)
-                },
-                color = FinalText,
-                fontSize = fontSize,
-                lineHeight = lineHeight,
-            )
+        itemsIndexed(captions.lines) { index, line ->
+            // Long-press a line to say who said it (認聲音); only lines with a voice profile can be named.
+            val press = if (line.voice != null) Modifier.combinedClickable(onClick = {}, onLongClick = { naming = index }) else Modifier
+            if (line.background) {
+                // Much quieter than the conversation (TV, other tables): small and gray.
+                Text("背景：${line.text}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp, modifier = press)
+            } else {
+                Text(
+                    buildAnnotatedString {
+                        speakerPrefix(line.speaker, line.speakerName)
+                        append(line.text)
+                    },
+                    color = FinalText,
+                    fontSize = fontSize,
+                    lineHeight = lineHeight,
+                    modifier = press,
+                )
+            }
         }
         if (hasCurrent) {
             item {
-                Text(
+                if (captions.currentBackground) {
+                    Text("背景：${captions.stableText}${captions.tentativeText}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp)
+                } else Text(
                     buildAnnotatedString {
-                        captions.currentSpeaker?.let { speakerPrefix(it) }
+                        speakerPrefix(captions.currentSpeaker, captions.currentSpeakerName)
                         withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
                         withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
                     },
@@ -197,10 +217,10 @@ private val SpeakerColors = listOf(
     Color(0xFF80D8FF), Color(0xFFFFAB91), Color(0xFFB9F6CA), Color(0xFFEA80FC), Color(0xFFFFE57F),
 )
 
-private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speaker: SpeakerId) {
-    withStyle(
-        SpanStyle(color = SpeakerColors[speaker.index.mod(SpeakerColors.size)], fontWeight = FontWeight.Bold),
-    ) { append("${speaker.label}：") }
+private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speaker: SpeakerId?, name: String? = null) {
+    if (speaker == null && name == null) return
+    val color = if (name != null) SpeakerColors[(name.hashCode() and 0x7fffffff) % SpeakerColors.size] else SpeakerColors[speaker!!.index.mod(SpeakerColors.size)]
+    withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append("${name ?: speaker!!.label}：") }
 }
 
 @Composable
@@ -211,8 +231,10 @@ private fun Controls(
     onStop: () -> Unit,
     onOpenEngines: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleBackground: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
+    onOpenPeople: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         // One button for the engine; the full list with descriptions opens in a sheet.
@@ -226,6 +248,17 @@ private fun Controls(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
+            TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Color.White) }
+            TextButton(onClick = onToggleBackground) {
+                Text(
+                    when (ui.backgroundMode) {
+                        tw.captions.core.BackgroundMode.OFF -> "背景過濾：關"
+                        tw.captions.core.BackgroundMode.DIM -> "背景過濾：淡化"
+                        tw.captions.core.BackgroundMode.HIDE -> "背景過濾：隱藏"
+                    },
+                    fontSize = 18.sp, color = Color.White,
+                )
+            }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
             TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }
@@ -254,4 +287,27 @@ private fun Controls(
             )
         }
     }
+}
+
+/** "Who said this?": type a name or pick someone already known. */
+@Composable
+private fun NameDialog(ui: UiState, onDismiss: () -> Unit, onName: (String) -> Unit) {
+    var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("這句話是誰說的？") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("App 會記住這個聲音，之後自動顯示名字。聲音特徵只存在這支手機上。", fontSize = 14.sp)
+                if (ui.people.isNotEmpty()) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ui.people.forEach { (_, name) -> androidx.compose.material3.AssistChip(onClick = { onName(name) }, label = { Text(name) }) }
+                    }
+                }
+                androidx.compose.material3.OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("名字，例如 媽媽") })
+            }
+        },
+        confirmButton = { TextButton(onClick = { onName(text) }, enabled = text.isNotBlank()) { Text("記住") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
