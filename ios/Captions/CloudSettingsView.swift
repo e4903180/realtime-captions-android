@@ -89,6 +89,14 @@ struct EnginePickerView: View {
                     rows(EngineInfo.all.filter { !$0.offline })
                     Button("雲端服務設定（金鑰）") { model.showCloudSettings = true }
                 }
+                Section {
+                    Picker("說話人數", selection: $model.speakerCount) {
+                        Text("自動").tag(0)
+                        ForEach(2...6, id: \.self) { Text("\($0) 人").tag($0) }
+                    }
+                } header: { Text("說話者") } footer: {
+                    Text("知道有幾個人在講話時選人數，分人會比較準。只用在「離線＋說話者」。")
+                }
                 Section("文字校正") {
                     NavigationLink("整句重聽、AI 校稿") { CorrectionSettingsView(store: model.secondPassStore) }
                 }

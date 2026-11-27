@@ -231,6 +231,20 @@ class CaptionAssembler(
         return state
     }
 
+    /**
+     * Groups all finished lines by voice again and updates their speaker letters
+     * ([SpeakerRecluster], ADR-027). Lines without a voice profile, background lines and lines
+     * with a registered name keep their label. [speakers] > 0 fixes the number of people.
+     */
+    fun recluster(threshold: Float = 0.45f, speakers: Int = 0): CaptionState {
+        val lines = state.lines
+        val voices = lines.map { if (it.background || it.speakerName != null) null else it.voice }
+        val relabeled = SpeakerRecluster.relabel(voices, lines.map { it.speaker }, threshold, speakers)
+        if (relabeled == lines.map { it.speaker }) return state
+        state = state.copy(lines = lines.mapIndexed { i, l -> if (l.speaker == relabeled[i]) l else l.copy(speaker = relabeled[i]) })
+        return state
+    }
+
     /** Shows [name] on a finished line (after the user said who it was). */
     fun nameLine(index: Int, name: String): CaptionState {
         if (index !in state.lines.indices) return state

@@ -71,6 +71,10 @@ fun main(args: Array<String>) {
         System.err.println("wrote $o")
         return
     }
+    if ("--speaker-recluster" in opts) {
+        speakerReclusterBenchmark(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "docs/benchmark-speakers.md"), quick = "--quick" in opts)
+        return
+    }
     if ("--second-pass" in opts) {
         secondPassBenchmark(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "docs/benchmark-second-pass.md"), quick = "--quick" in opts)
         return
@@ -211,6 +215,8 @@ fun runFile(
     /** Whole-sentence model that hears each finished line again (ADR-025); needs keepUtteranceAudioSec. */
     secondPass: SherpaOfflineAsr? = null,
     secondPassStats: SecondPassStats? = null,
+    /** Regroup all lines by voice at the end (ADR-027): threshold, and fixed speaker count (0 = auto). */
+    recluster: Pair<Float, Int>? = null,
 ): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
     val pipeline = stack.newPipeline(registry)
@@ -281,6 +287,14 @@ fun runFile(
     wall += (System.nanoTime() - t0) / 1e9
     handle(tail, audio.size / 16000.0, wall)
 
+    if (recluster != null) {
+        val lines = assembler.recluster(recluster.first, recluster.second).lines
+        if (lines.size == utterances.size) {
+            for (k in utterances.indices) utterances[k] = utterances[k].copy(speaker = lines[k].speaker?.index)
+        } else {
+            System.err.println("recluster: ${lines.size} lines vs ${utterances.size} utterances in ${truth.id}, left as is")
+        }
+    }
     // References may be Simplified (AISHELL, AliMeeting); score both sides in Taiwan Traditional.
     val ref = truth.segments.flatMap { scoringTokens(OpenCcTaiwan.toTraditional(it.text)) }
     val hypText = assembler.state.lines.joinToString(" ") { it.text }

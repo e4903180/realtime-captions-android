@@ -27,6 +27,15 @@ final class CaptionViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(fontSize, forKey: "fontSize") }
     }
 
+    /// How many people are talking: 0 = work it out (ADR-027).
+    @Published var speakerCount: Int = UserDefaults.standard.integer(forKey: "speakerCount") {
+        didSet {
+            UserDefaults.standard.set(speakerCount, forKey: "speakerCount")
+            apply(assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount)))
+        }
+    }
+    static let reclusterThreshold: Float = 0.45
+
     @Published var engineId: String = UserDefaults.standard.string(forKey: "engineId") ?? EngineInfo.offlineId {
         didSet { UserDefaults.standard.set(engineId, forKey: "engineId") }
     }
@@ -205,6 +214,10 @@ final class CaptionViewModel: ObservableObject {
                 finalSeqs[n] = assembler.lastFinalSeq
                 if let early = pendingRevisions.removeValue(forKey: n) { state = assembler.revise(seq: assembler.lastFinalSeq, text: early) }
             }
+        }
+        if sawFinal {
+            // Regroup every line by voice, so earlier speaker mistakes get fixed too (ADR-027).
+            state = assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount))
         }
         apply(state)
         if sawFinal { scheduleProofreading() }
