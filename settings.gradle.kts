@@ -34,6 +34,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "realtime-captions-android"
 include(":core")
+// JVM harness that runs the sherpa-onnx engine on wav files and writes docs/benchmark.md.
+include(":desktop")
 // The Android app needs the Android SDK. Set -PcoreOnly=true to build/test only the pure-Kotlin core.
 if (providers.gradleProperty("coreOnly").orNull != "true") {
     include(":app")
