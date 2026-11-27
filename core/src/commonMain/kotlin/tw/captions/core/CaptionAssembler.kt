@@ -183,7 +183,7 @@ class CaptionAssembler(
                         state.lines.dropLast(1) + last.copy(
                             text = join(last.text, text),
                             speakerName = last.speakerName ?: event.speakerName,
-                            voice = event.voice ?: last.voice,
+                            voice = blendVoices(last.voice, last.text.length, event.voice, text.length),
                         )
                     }
                     else -> {
@@ -248,6 +248,29 @@ class CaptionAssembler(
         return state
     }
 
+    /**
+     * Voice profile of every speaker letter, from the finished lines as they are labelled now
+     * (longer lines count more), with the number of lines behind it. After [recluster] changed
+     * labels, hand this to [SpeakerClusterer.replaceProfiles] so the next line is compared with
+     * the corrected groups instead of the ones from before the correction.
+     */
+    fun speakerProfiles(): Map<SpeakerId, SpeakerClusterer.Profile> {
+        val sums = mutableMapOf<SpeakerId, FloatArray>()
+        val counts = mutableMapOf<SpeakerId, Int>()
+        for (l in state.lines) {
+            val speaker = l.speaker ?: continue
+            val voice = l.voice ?: continue
+            if (l.background) continue
+            val unit = unitVector(voice)
+            val w = l.text.length.coerceAtLeast(1)
+            val sum = sums.getOrPut(speaker) { FloatArray(unit.size) }
+            if (sum.size != unit.size) continue
+            for (k in unit.indices) sum[k] += unit[k] * w
+            counts[speaker] = (counts[speaker] ?: 0) + 1
+        }
+        return sums.mapValues { (id, sum) -> SpeakerClusterer.Profile(unitVector(sum), counts[id] ?: 1) }
+    }
+
     /** Names given to speaker labels this session: new lines from that label show the name too. */
     private val speakerNames = mutableMapOf<SpeakerId, String>()
 
@@ -294,6 +317,24 @@ class CaptionAssembler(
         while (i < n && a[i] == b[i]) i++
         return i
     }
+}
+
+private fun unitVector(v: FloatArray): FloatArray {
+    var n = 0f
+    for (x in v) n += x * x
+    val norm = kotlin.math.sqrt(n)
+    return if (norm == 0f) v.copyOf() else FloatArray(v.size) { v[it] / norm }
+}
+
+/** Average of two voice profiles weighted by how much speech each stands for (text length). */
+internal fun blendVoices(a: FloatArray?, aWeight: Int, b: FloatArray?, bWeight: Int): FloatArray? {
+    if (a == null) return b
+    if (b == null || a.size != b.size) return a
+    val ua = unitVector(a)
+    val ub = unitVector(b)
+    val wa = aWeight.coerceAtLeast(1)
+    val wb = bWeight.coerceAtLeast(1)
+    return unitVector(FloatArray(a.size) { ua[it] * wa + ub[it] * wb })
 }
 
 private fun defaultClock(): () -> Double {

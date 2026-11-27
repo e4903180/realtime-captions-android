@@ -93,9 +93,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val registry = tw.captions.core.VoiceRegistry()
 
+    /** Live speaker groups of the offline engine; corrected after every regrouping of finished lines. */
+    private val clusterer = tw.captions.core.SpeakerClusterer()
+
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: MicInput() },
@@ -455,6 +458,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     // mistakes get fixed too (ADR-027).
                     if (event is tw.captions.core.TranscriptEvent.Final && _ui.value.speakersOn) {
                         captions = assembler.recluster(RECLUSTER_THRESHOLD, _ui.value.speakerCount)
+                        // The next line is compared with the corrected groups, so its letter does not jump.
+                        if (!isPaid(engine.id)) clusterer.replaceProfiles(assembler.speakerProfiles())
                     }
                     _ui.update { it.copy(captions = captions) }
                     // Only finished lines change the transcript.
@@ -547,6 +552,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clear() {
         assembler.reset()
+        clusterer.replaceProfiles(emptyMap())
         _ui.update { it.copy(captions = CaptionState(isListening = it.running)) }
     }
 
@@ -591,6 +597,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun setSpeakerCount(n: Int) {
         prefs.edit().putInt("speaker_count", n).apply()
         _ui.update { it.copy(speakerCount = n, captions = assembler.recluster(RECLUSTER_THRESHOLD, n)) }
+        if (!isPaid(_ui.value.engineId)) clusterer.replaceProfiles(assembler.speakerProfiles())
         recordLines()
     }
 
