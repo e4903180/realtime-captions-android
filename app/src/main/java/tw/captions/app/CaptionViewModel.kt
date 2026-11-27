@@ -33,6 +33,8 @@ data class UiState(
     val fontSizeSp: Int = 36,
     /** People the app recognises (id to name), for the 認得的人 list. */
     val people: List<Pair<Int, String>> = emptyList(),
+    /** Dark / light: follow the system (default) or fixed (ADR-031). */
+    val appearance: tw.captions.app.ui.Appearance = tw.captions.app.ui.Appearance.SYSTEM,
     /** Saved transcripts, newest first (ADR-029). */
     val transcripts: List<tw.captions.core.Transcript> = emptyList(),
     val transcriptsEnabled: Boolean = true,
@@ -121,6 +123,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         loadPeople()
         _ui.update { it.copy(usage = usageStore.load(), usagePrices = usageStore.loadPrices(), today = usageStore.today()) }
         _ui.update { it.copy(transcriptsEnabled = transcriptStore.enabled) }
+        val appearance = runCatching { tw.captions.app.ui.Appearance.valueOf(prefs.getString("appearance", "SYSTEM")!!) }
+            .getOrDefault(tw.captions.app.ui.Appearance.SYSTEM)
+        _ui.update { it.copy(appearance = appearance) }
         viewModelScope.launch(Dispatchers.IO) {
             val all = transcriptStore.loadAll()
             _ui.update { it.copy(transcripts = all) }
@@ -515,6 +520,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         assembler.backgroundMode = if (on) tw.captions.core.BackgroundMode.OFF else _ui.value.backgroundMode
         prefs.edit().putBoolean("tv_mode", on).apply()
         _ui.update { it.copy(tvMode = on) }
+    }
+
+    fun setAppearance(a: tw.captions.app.ui.Appearance) {
+        prefs.edit().putString("appearance", a.name).apply()
+        _ui.update { it.copy(appearance = a) }
     }
 
     fun changeFontSize(deltaSp: Int) {

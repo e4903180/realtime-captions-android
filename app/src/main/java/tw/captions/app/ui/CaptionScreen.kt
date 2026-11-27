@@ -44,12 +44,12 @@ import tw.captions.app.UiState
 import tw.captions.core.SpeakerId
 import tw.captions.core.SpeechEngine
 
-private val Background = Color.Black
-private val FinalText = Color.White
-private val StableText = Color(0xFFFFF59D)    // light yellow: current sentence, settled
-private val TentativeText = Color(0xFF9E9E9E) // gray: may still change
-private val ErrorText = Color(0xFFFF8A80)
-private val BackgroundText = Color(0xFF757575)
+private val Background: Color @Composable get() = LocalPalette.current.background
+private val FinalText: Color @Composable get() = LocalPalette.current.text
+private val StableText: Color @Composable get() = LocalPalette.current.stable    // current sentence, settled
+private val TentativeText: Color @Composable get() = LocalPalette.current.tentative // may still change
+private val ErrorText: Color @Composable get() = LocalPalette.current.error
+private val BackgroundText: Color @Composable get() = LocalPalette.current.backgroundSpeech
 
 @Composable
 fun CaptionScreen(
@@ -67,7 +67,7 @@ fun CaptionScreen(
     onToggleTv: () -> Unit = {},
     onOpenTranscripts: () -> Unit = {},
 ) {
-    MaterialTheme(colorScheme = darkColorScheme(background = Background)) {
+    run {
         Column(
             Modifier
                 .fillMaxSize()
@@ -82,7 +82,7 @@ fun CaptionScreen(
                     onClick = onToggleTv,
                     label = { Text("看電視", fontSize = 16.sp) },
                     colors = FilterChipDefaults.filterChipColors(
-                        labelColor = Color.White,
+                        labelColor = Ink,
                         selectedContainerColor = Color(0xFF2E7D32),
                         selectedLabelColor = Color.White,
                     ),
@@ -126,7 +126,7 @@ fun CaptionScreen(
             ui.cloudSeconds?.let { sec ->
                 Text(
                     "雲端計費中：本次已使用 ${sec / 60} 分 ${sec % 60} 秒",
-                    color = Color(0xFFFFB74D),
+                    color = LocalPalette.current.warn,
                     fontSize = 15.sp,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
@@ -181,7 +181,7 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
             } else {
                 Text(
                     buildAnnotatedString {
-                        speakerPrefix(line.speaker, line.speakerName)
+                        speakerPrefix(line.speaker, line.speakerName, LocalPalette.current.speakers)
                         append(line.text)
                     },
                     color = FinalText,
@@ -197,7 +197,7 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
                     Text("背景：${captions.stableText}${captions.tentativeText}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp)
                 } else Text(
                     buildAnnotatedString {
-                        speakerPrefix(captions.currentSpeaker, captions.currentSpeakerName)
+                        speakerPrefix(captions.currentSpeaker, captions.currentSpeakerName, LocalPalette.current.speakers)
                         withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
                         withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
                     },
@@ -259,23 +259,19 @@ private fun LevelMeter(level: Float) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .height(6.dp)
-            .background(Color(0xFF303030), CircleShape),
+            .background(LocalPalette.current.meterTrack, CircleShape),
     ) {
         Box(
             Modifier
                 .fillMaxWidth(level.coerceIn(0f, 1f))
                 .height(6.dp)
-                .background(Color(0xFF66BB6A), CircleShape),
+                .background(LocalPalette.current.accent, CircleShape),
         )
     }
 }
 
-// Distinct, high-contrast colors on black, one per speaker.
-private val SpeakerColors = listOf(
-    Color(0xFF80D8FF), Color(0xFFFFAB91), Color(0xFFB9F6CA), Color(0xFFEA80FC), Color(0xFFFFE57F),
-)
-
-private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speaker: SpeakerId?, name: String? = null) {
+// Distinct, high-contrast colors for the current background, one per speaker (see Palette).
+private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speaker: SpeakerId?, name: String? = null, SpeakerColors: List<Color>) {
     if (speaker == null && name == null) return
     val color = if (name != null) SpeakerColors[(name.hashCode() and 0x7fffffff) % SpeakerColors.size] else SpeakerColors[speaker!!.index.mod(SpeakerColors.size)]
     withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append("${name ?: speaker!!.label}：") }
@@ -303,12 +299,12 @@ private fun Controls(
             onClick = onOpenEngines,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("引擎：$current  ▾", fontSize = 18.sp, color = Color.White)
+            Text("引擎：$current  ▾", fontSize = 18.sp, color = Ink)
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onOpenTranscripts) { Text("紀錄", fontSize = 18.sp, color = Color.White) }
-            TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Color.White) }
-            TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Color.White) }
+            TextButton(onClick = onOpenTranscripts) { Text("紀錄", fontSize = 18.sp, color = Ink) }
+            TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Ink) }
+            TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Ink) }
             if (!ui.tvMode) TextButton(onClick = onToggleBackground) {
                 Text(
                     when (ui.backgroundMode) {
@@ -316,12 +312,12 @@ private fun Controls(
                         tw.captions.core.BackgroundMode.DIM -> "背景過濾：淡化"
                         tw.captions.core.BackgroundMode.HIDE -> "背景過濾：隱藏"
                     },
-                    fontSize = 18.sp, color = Color.White,
+                    fontSize = 18.sp, color = Ink,
                 )
             }
-            TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Color.White) }
-            TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Color.White) }
-            TextButton(onClick = onClear) { Text("清除", fontSize = 18.sp, color = Color.White) }
+            TextButton(onClick = { onFontSize(-4) }) { Text("A−", fontSize = 18.sp, color = Ink) }
+            TextButton(onClick = { onFontSize(4) }) { Text("A+", fontSize = 22.sp, color = Ink) }
+            TextButton(onClick = onClear) { Text("清除", fontSize = 18.sp, color = Ink) }
         }
         Spacer(Modifier.height(8.dp))
         Button(

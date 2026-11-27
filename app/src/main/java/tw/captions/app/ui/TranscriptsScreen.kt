@@ -46,8 +46,8 @@ import tw.captions.app.UiState
 import tw.captions.app.history.TranscriptStore
 import tw.captions.core.Transcript
 
-private val Sub = Color(0xFFB0B0B0)
-private val Danger = Color(0xFFFF8A80)
+private val Sub: Color @Composable get() = LocalPalette.current.sub
+private val Danger: Color @Composable get() = LocalPalette.current.error
 private val Hit = Color(0xFFFFEB3B)
 
 /** 紀錄: saved transcripts, search, rename, delete and export (ADR-029). */
@@ -66,7 +66,7 @@ fun TranscriptsScreen(
     var confirmAll by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.fillMaxSize().background(Color(0xFF121212)).safeDrawingPadding().padding(16.dp),
+            Modifier.fillMaxSize().background(LocalPalette.current.surface).safeDrawingPadding().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val open = ui.transcripts.firstOrNull { it.id == openId }
@@ -75,11 +75,11 @@ fun TranscriptsScreen(
                 return@Column
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("逐字稿紀錄", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("完成", color = Color.White, fontSize = 18.sp) }
+                Text("逐字稿紀錄", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = onDismiss) { Text("完成", color = Ink, fontSize = 18.sp) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("自動保存每次的逐字稿", color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Text("自動保存每次的逐字稿", color = Ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 Switch(checked = ui.transcriptsEnabled, onCheckedChange = onSetEnabled)
             }
             Text("只存在這支手機上，不會上傳，也不存聲音。", color = Sub, fontSize = 14.sp)
@@ -99,12 +99,12 @@ fun TranscriptsScreen(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(12.dp))
+                            .border(1.dp, LocalPalette.current.border, RoundedCornerShape(12.dp))
                             .clickable { openId = t.id }
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(TranscriptStore.displayTitle(t), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(TranscriptStore.displayTitle(t), color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text(TranscriptStore.subtitle(t), color = Sub, fontSize = 14.sp)
                         val preview = if (query.isNotBlank()) t.lines.firstOrNull { it.text.contains(query.trim(), ignoreCase = true) } ?: t.lines.firstOrNull() else t.lines.firstOrNull()
                         preview?.let { Text(highlight(it.text, query.trim()), color = Sub, fontSize = 15.sp, maxLines = 2) }
@@ -149,18 +149,18 @@ private fun TranscriptDetail(
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ 紀錄", color = Color.White, fontSize = 18.sp) }
+            TextButton(onClick = onBack) { Text("‹ 紀錄", color = Ink, fontSize = 18.sp) }
         }
-        Text(TranscriptStore.displayTitle(t), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(TranscriptStore.displayTitle(t), color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(TranscriptStore.subtitle(t), color = Sub, fontSize = 14.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { pendingSrt = false; save.launch(TranscriptStore.fileStem(t) + ".txt") }) { Text("下載 .txt", color = Color.White) }
-            OutlinedButton(onClick = { pendingSrt = true; save.launch(TranscriptStore.fileStem(t) + ".srt") }) { Text("下載 .srt", color = Color.White) }
+            OutlinedButton(onClick = { pendingSrt = false; save.launch(TranscriptStore.fileStem(t) + ".txt") }) { Text("下載 .txt", color = Ink) }
+            OutlinedButton(onClick = { pendingSrt = true; save.launch(TranscriptStore.fileStem(t) + ".srt") }) { Text("下載 .srt", color = Ink) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { share(context, exportText(t, false), TranscriptStore.displayTitle(t)) }) { Text("分享", color = Color.White) }
-            TextButton(onClick = { copy(context, exportText(t, false)) }) { Text("複製全文", color = Color.White) }
-            TextButton(onClick = { renaming = true }) { Text("改標題", color = Color.White) }
+            TextButton(onClick = { share(context, exportText(t, false), TranscriptStore.displayTitle(t)) }) { Text("分享", color = Ink) }
+            TextButton(onClick = { copy(context, exportText(t, false)) }) { Text("複製全文", color = Ink) }
+            TextButton(onClick = { renaming = true }) { Text("改標題", color = Ink) }
             TextButton(onClick = { confirmDelete = true }) { Text("刪除", color = Danger) }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -168,10 +168,10 @@ private fun TranscriptDetail(
                 Text(
                     buildAnnotatedString {
                         append(Transcript.srtTime(l.start).substring(0, 8) + "  ")
-                        l.speaker?.let { withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF80D8FF))) { append("$it：") } }
+                        l.speaker?.let { withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = LocalPalette.current.speakers[0])) { append("$it：") } }
                         append(highlight(l.text, query))
                     },
-                    color = Color.White,
+                    color = Ink,
                     fontSize = 18.sp,
                     lineHeight = 26.sp,
                 )
