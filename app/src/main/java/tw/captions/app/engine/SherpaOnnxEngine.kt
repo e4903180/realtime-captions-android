@@ -42,13 +42,23 @@ import tw.captions.core.VoiceActivityDetector
 class SherpaOnnxEngine(
     private val models: ModelStore,
     private val openInput: () -> AudioInput,
+    /** Which X-ASR model: 160 ms chunks (fastest words, default) or 480 ms (less compute). */
+    val variant: Variant = Variant.X160,
     private val speakerThreshold: Float = 0.5f,
     /** Run the GTCRN speech-enhancement model before recognition (see docs/benchmark-noise.md). */
     private val useDenoiser: Boolean = DENOISER_DEFAULT,
 ) : SpeechEngine {
-    override val id = ID
-    override val displayName = "離線＋說話者"
+    override val id = variant.id
+    override val displayName = variant.displayName
     override val requiresNetwork = false
+
+    /** Model packs this engine needs on disk. */
+    val packs: List<ModelStore.Pack> get() = variant.packs
+
+    enum class Variant(val id: String, val displayName: String, val filePrefix: String, val packs: List<ModelStore.Pack>) {
+        X160(ID, "離線＋說話者", "asr", listOf(ModelStore.XASR_160, ModelStore.SHARED)),
+        X480("sherpa-onnx-480", "離線＋說話者（省電）", "asr480", listOf(ModelStore.XASR_480, ModelStore.SHARED)),
+    }
 
     companion object {
         const val ID = "sherpa-onnx"
@@ -59,11 +69,11 @@ class SherpaOnnxEngine(
     }
 
     override fun transcribe(config: RecognitionConfig): Flow<TranscriptEvent> = flow {
-        if (!models.isReady) {
+        if (!models.isInstalled(packs)) {
             emit(TranscriptEvent.Error("離線模型還沒下載完成", recoverable = false))
             return@flow
         }
-        val asr = Asr(models)
+        val asr = Asr(models, variant.filePrefix)
         val vad = SileroVad(models)
         val embedder = Embedder(models)
         val denoiser = if (useDenoiser) Denoiser(models) else null
@@ -97,18 +107,18 @@ class SherpaOnnxEngine(
         }
     }.flowOn(Dispatchers.Default)
 
-    private class Asr(models: ModelStore) : StreamingAsr, AutoCloseable {
+    private class Asr(models: ModelStore, prefix: String) : StreamingAsr, AutoCloseable {
         private val recognizer = OnlineRecognizer(
             assetManager = null,
             config = OnlineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
                 modelConfig = OnlineModelConfig(
                     transducer = OnlineTransducerModelConfig(
-                        encoder = models.file("asr-encoder.onnx").path,
-                        decoder = models.file("asr-decoder.onnx").path,
-                        joiner = models.file("asr-joiner.onnx").path,
+                        encoder = models.file("$prefix-encoder.onnx").path,
+                        decoder = models.file("$prefix-decoder.onnx").path,
+                        joiner = models.file("$prefix-joiner.onnx").path,
                     ),
-                    tokens = models.file("asr-tokens.txt").path,
+                    tokens = models.file("$prefix-tokens.txt").path,
                     numThreads = 2,
                 ),
                 endpointConfig = EndpointConfig(

@@ -15,6 +15,10 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tw.captions.app.ui.CaptionScreen
+import tw.captions.app.ui.EnginePicker
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -44,15 +48,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            var showEngines by remember { mutableStateOf(false) }
             CaptionScreen(
                 ui = ui,
                 engines = viewModel.engines,
                 onStart = ::startWithPermission,
                 onStop = viewModel::stop,
-                onSelectEngine = viewModel::selectEngine,
+                onOpenEngines = { showEngines = true },
                 onClear = viewModel::clear,
                 onFontSize = viewModel::changeFontSize,
             )
+            if (showEngines) {
+                EnginePicker(
+                    ui = ui,
+                    onDismiss = { showEngines = false },
+                    onSelect = viewModel::selectEngine,
+                    onDownload = { viewModel.download(it) },
+                    onCancelDownload = viewModel::cancelDownload,
+                    onUninstall = viewModel::uninstall,
+                )
+            }
         }
     }
 

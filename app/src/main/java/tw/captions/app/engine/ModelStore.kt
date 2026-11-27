@@ -17,8 +17,10 @@ import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
 /**
- * Offline models are downloaded on first use into app storage instead of being bundled in the APK
- * (about 165 MB in total). Every download is checked against its SHA-256.
+ * Offline models are downloaded on demand into app storage instead of being bundled in the APK.
+ * They are grouped in [Pack]s: each offline engine needs some packs, and shared packs (VAD,
+ * speaker model, denoiser) are downloaded once. Every pack can be removed again. Every download
+ * is checked against its SHA-256.
  */
 class ModelStore(context: Context) {
     val dir = File(context.filesDir, "models")
@@ -66,22 +68,62 @@ class ModelStore(context: Context) {
             535_638,
             localName = "denoiser.onnx",
         )
-        val ALL = listOf(ASR, VAD, SPEAKER, DENOISER)
+        /** X-ASR 480 ms chunks: same accuracy, less compute, first words ~0.1 s later. */
+        val ASR_480 = Remote(
+            "$RELEASES/asr-models/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-int8-2026-06-05.tar.bz2",
+            "fa5f63d618e5a01526e275a358bb7772e403f84808a4769fba52cffd8160bf74",
+            133_895_136,
+            extract = mapOf(
+                "encoder.int8.onnx" to "asr480-encoder.onnx",
+                "decoder.onnx" to "asr480-decoder.onnx",
+                "joiner.int8.onnx" to "asr480-joiner.onnx",
+                "tokens.txt" to "asr480-tokens.txt",
+            ),
+        )
+
+        val XASR_160 = Pack("xasr-160", "語音辨識 X-ASR 160 ms", listOf(ASR))
+        val XASR_480 = Pack("xasr-480", "語音辨識 X-ASR 480 ms", listOf(ASR_480))
+        val SHARED = Pack("shared", "人聲偵測、說話者、降噪", listOf(VAD, SPEAKER, DENOISER))
+        val PACKS = listOf(XASR_160, XASR_480, SHARED)
         private const val TAG = "CaptionsModels"
+    }
+
+    /** A group of files downloaded and removed together. */
+    data class Pack(val id: String, val title: String, val files: List<Remote>) {
+        val downloadBytes: Long get() = files.sumOf { it.bytes }
     }
 
     fun file(name: String) = File(dir, name)
 
     private fun done(r: Remote) = File(dir, "${r.sha256}.ok")
 
-    val isReady: Boolean get() = ALL.all { done(it).exists() }
+    fun isInstalled(pack: Pack): Boolean = pack.files.all { done(it).exists() }
 
-    /** Downloads whatever is missing. [onProgress] gets 0..1 over all files. */
-    suspend fun ensure(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+    fun isInstalled(packs: List<Pack>): Boolean = packs.all { isInstalled(it) }
+
+    /** Bytes the pack's files use on disk now. */
+    fun sizeOnDisk(pack: Pack): Long = pack.files.flatMap { localFiles(it) }.sumOf { if (it.exists()) it.length() else 0L }
+
+    private fun localFiles(r: Remote): List<File> =
+        if (r.extract.isEmpty()) listOf(File(dir, r.localName)) else r.extract.values.map { File(dir, it) }
+
+    /** Removes a pack's files. Callers make sure no installed engine still needs it. */
+    fun delete(pack: Pack) {
+        for (r in pack.files) {
+            localFiles(r).forEach { it.delete() }
+            done(r).delete()
+            File(dir, r.localName + ".part").delete()
+        }
+        Log.i(TAG, "deleted ${pack.id}")
+    }
+
+    /** Downloads whatever is missing from [packs]. [onProgress] gets 0..1 over the missing files. */
+    suspend fun ensure(packs: List<Pack>, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         dir.mkdirs()
-        val total = ALL.sumOf { it.bytes }.toFloat()
+        val missing = packs.flatMap { it.files }.distinct().filter { !done(it).exists() }
+        val total = missing.sumOf { it.bytes }.coerceAtLeast(1).toFloat()
         var finished = 0L
-        for (r in ALL) {
+        for (r in missing) {
             if (!done(r).exists()) {
                 Log.i(TAG, "downloading ${r.url}")
                 fetch(r) { bytes -> onProgress((finished + bytes) / total) }
