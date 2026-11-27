@@ -2,6 +2,7 @@ package tw.captions.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,9 +19,10 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: CaptionViewModel by viewModels()
 
-    private val micPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) viewModel.start()
+    private val permissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            // The notification permission is optional; only the microphone is required.
+            if (result[Manifest.permission.RECORD_AUDIO] == true) viewModel.start()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,8 +34,10 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(ui.running) {
                 if (ui.running) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    ListeningService.start(this@MainActivity)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    ListeningService.stop(this@MainActivity)
                 }
             }
 
@@ -55,7 +59,11 @@ class MainActivity : ComponentActivity() {
         ) {
             viewModel.start()
         } else {
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            val wanted = buildList {
+                add(Manifest.permission.RECORD_AUDIO)
+                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            permissions.launch(wanted.toTypedArray())
         }
     }
 }
