@@ -19,7 +19,9 @@ struct CorrectionSettingsView: View {
                     .onChange(of: secondPass) { SecondPassModel.isEnabled = $0 }
                 Text("一句說完後，用比較準的整句模型（\(SecondPassModel.name)）把那段聲音再聽一次，換掉錯字。不用網路，字幕照樣即時出現，修正約晚 1 秒。只用在「離線＋說話者」。")
                     .font(.callout).foregroundColor(.secondary)
-                if store.isReady {
+                if !SecondPassModel.available {
+                    Text("整句模型還在挑選中，下一版提供下載。").foregroundColor(.secondary)
+                } else if store.isReady {
                     Button("移除整句模型", role: .destructive) { store.delete() }
                 } else if let p = store.progress {
                     ProgressView(value: p) { Text("下載中… \(Int(p * 100))%") }
