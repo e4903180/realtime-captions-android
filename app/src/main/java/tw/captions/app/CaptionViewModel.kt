@@ -106,6 +106,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val transcriptStore = tw.captions.app.history.TranscriptStore(app)
 
+    /**
+     * For writing transcripts to disk. Not tied to the screen: when the app is closed while
+     * captions run, the last lines are still saved (viewModelScope is already cancelled then).
+     */
+    private val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
     private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan), mergeGapSec = 1.5)
 
     init {
@@ -137,6 +143,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             .getOrDefault(tw.captions.app.ui.Appearance.SYSTEM)
         _ui.update { it.copy(appearance = appearance) }
         _ui.update { it.copy(speakersOn = prefs.getBoolean("speakers_on", true), speakerCount = prefs.getInt("speaker_count", 0)) }
+        _ui.update { it.copy(fontSizeSp = prefs.getInt("font_size", it.fontSizeSp).coerceIn(20, 72)) }
         viewModelScope.launch(Dispatchers.IO) {
             val all = transcriptStore.loadAll()
             _ui.update { it.copy(transcripts = all) }
@@ -184,7 +191,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         unsavedChanges = 0
         lastSaveMs = System.currentTimeMillis()
         _ui.update { s -> s.copy(transcripts = (listOf(t) + s.transcripts.filter { it.id != t.id }).sortedByDescending { it.startedMs }) }
-        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(t) }
+        ioScope.launch { transcriptStore.save(t) }
     }
 
     private fun finishTranscript() {
@@ -199,19 +206,19 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val renamed = t.copy(title = title.trim().ifEmpty { null })
         if (recorder?.transcript?.id == id) recorder?.rename(renamed.title)
         _ui.update { s -> s.copy(transcripts = s.transcripts.map { if (it.id == id) renamed else it }) }
-        viewModelScope.launch(Dispatchers.IO) { transcriptStore.save(renamed) }
+        ioScope.launch { transcriptStore.save(renamed) }
     }
 
     fun deleteTranscript(id: String) {
         if (recorder?.transcript?.id == id) recorder = null
         _ui.update { s -> s.copy(transcripts = s.transcripts.filter { it.id != id }) }
-        viewModelScope.launch(Dispatchers.IO) { transcriptStore.delete(id) }
+        ioScope.launch { transcriptStore.delete(id) }
     }
 
     fun deleteAllTranscripts() {
         recorder = null
         _ui.update { it.copy(transcripts = emptyList()) }
-        viewModelScope.launch(Dispatchers.IO) { transcriptStore.deleteAll() }
+        ioScope.launch { transcriptStore.deleteAll() }
     }
 
     fun setTranscriptsEnabled(on: Boolean) {
@@ -425,7 +432,18 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         lateinit var self: Job
         self = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
+                var lastLevelAt = 0L
                 engine.transcribe(RecognitionConfig(languageTag = "zh-TW")).collect { event ->
+                    if (event is tw.captions.core.TranscriptEvent.AudioLevel) {
+                        // Arrives 50 times a second; the meter needs far fewer screen updates.
+                        val state = assembler.onEvent(event)
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastLevelAt >= 66) {
+                            lastLevelAt = now
+                            _ui.update { it.copy(captions = state) }
+                        }
+                        return@collect
+                    }
                     var captions = assembler.onEvent(event)
                     // Regroup every line by voice after each finished one, so earlier speaker
                     // mistakes get fixed too (ADR-027).
@@ -433,7 +451,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         captions = assembler.recluster(RECLUSTER_THRESHOLD, _ui.value.speakerCount)
                     }
                     _ui.update { it.copy(captions = captions) }
-                    recordLines()
+                    // Only finished lines change the transcript.
+                    if (event is tw.captions.core.TranscriptEvent.Final) recordLines()
                 }
             } finally {
                 // The engine stopped by itself (e.g. a fatal error), not via stop().
@@ -498,6 +517,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         markStopped()
     }
 
+    /** The screen is gone for good (app closed): end the session so usage and the transcript are saved. */
+    override fun onCleared() {
+        stop()
+        ListeningService.stop(getApplication())
+        super.onCleared()
+    }
+
     fun selectEngine(id: String) {
         val wasRunning = job != null
         stop()
@@ -559,5 +585,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun changeFontSize(deltaSp: Int) {
         _ui.update { it.copy(fontSizeSp = (it.fontSizeSp + deltaSp).coerceIn(20, 72)) }
+        prefs.edit().putInt("font_size", _ui.value.fontSizeSp).apply()
     }
 }
