@@ -128,7 +128,7 @@ fun noiseReport(results: List<Pair<EngineSetup, List<FileResult>>>, denoiserRtf:
     appendLine("## Noise only: phantom captions")
     appendLine()
     appendLine("3 minutes of loud noise (about −20 dBFS) with nobody speaking to the user. Every caption line here is a phantom, " +
-        "and a deaf reader cannot tell it from real speech.")
+        "and someone relying on the captions cannot tell it from real speech.")
     appendLine()
     appendLine("| Noise | " + results.joinToString(" | ") { "${name(it.first)}: lines / chars / speakers" } + " | Example phantom lines (no denoiser) |")
     appendLine("|---|" + results.joinToString("") { "---|" } + "---|")

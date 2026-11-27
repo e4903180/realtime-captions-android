@@ -69,7 +69,7 @@ All noise types together, no denoiser, measured after the engine update (8 s lin
 
 ## Noise only: phantom captions
 
-3 minutes of loud noise (about −20 dBFS) with nobody speaking to the user. Every caption line here is a phantom, and a deaf reader cannot tell it from real speech.
+3 minutes of loud noise (about −20 dBFS) with nobody speaking to the user. Every caption line here is a phantom, and someone relying on the captions cannot tell it from real speech.
 
 | Noise | none: lines / chars / speakers | gtcrn: lines / chars / speakers | dpdfnet2: lines / chars / speakers | Example phantom lines (no denoiser) |
 |---|---|---|---|---|

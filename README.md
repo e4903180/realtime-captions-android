@@ -1,6 +1,6 @@
 # 即時字幕 (Real-time captions)
 
-An Android app that turns speech into live captions, made so a deaf or hard-of-hearing person can follow a conversation.
+An Android app that turns speech into live captions, so anyone can follow a conversation by reading it.
 Mandarin (Traditional Chinese) comes first. English and Taiwanese come next.
 
 ## Design goals
