@@ -1,9 +1,14 @@
 package tw.captions.core
 
+/** One finished caption line. */
+data class CaptionLine(val text: String, val speaker: SpeakerId? = null)
+
 /** What the caption screen shows. */
 data class CaptionState(
     /** Finished lines, oldest first. */
-    val lines: List<String> = emptyList(),
+    val lines: List<CaptionLine> = emptyList(),
+    /** Speaker of the current utterance, if known. */
+    val currentSpeaker: SpeakerId? = null,
     /** Part of the current utterance that has stayed the same across recent partial results. */
     val stableText: String = "",
     /** Rest of the current utterance; may still change, shown in a lighter style. */
@@ -41,6 +46,7 @@ class CaptionAssembler(
                 val stableLen = if (lastPartial.isEmpty()) 0 else commonPrefixLength(lastPartial, text)
                 lastPartial = text
                 state.copy(
+                    currentSpeaker = event.speaker,
                     stableText = text.substring(0, stableLen),
                     tentativeText = text.substring(stableLen),
                     error = null,
@@ -50,8 +56,12 @@ class CaptionAssembler(
             is TranscriptEvent.Final -> {
                 val text = processor.process(event.text)
                 lastPartial = ""
-                val lines = if (text.isBlank()) state.lines else (state.lines + text).takeLast(maxLines)
-                state.copy(lines = lines, stableText = "", tentativeText = "", error = null)
+                val lines = if (text.isBlank()) {
+                    state.lines
+                } else {
+                    (state.lines + CaptionLine(text, event.speaker)).takeLast(maxLines)
+                }
+                state.copy(lines = lines, currentSpeaker = null, stableText = "", tentativeText = "", error = null)
             }
 
             is TranscriptEvent.Error -> state.copy(

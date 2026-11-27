@@ -25,7 +25,7 @@ class CaptionAssemblerTest {
         val a = CaptionAssembler()
         a.onEvent(TranscriptEvent.Partial("你好"))
         a.onEvent(TranscriptEvent.Final("你好嗎?"))
-        assertEquals(listOf("你好嗎？"), a.state.lines)
+        assertEquals(listOf(CaptionLine("你好嗎？")), a.state.lines)
         assertEquals("", a.state.stableText + a.state.tentativeText)
 
         // A new utterance starts fresh, with nothing marked stable yet.
@@ -37,7 +37,7 @@ class CaptionAssemblerTest {
     fun ignoresBlankFinalsAndCapsLines() {
         val a = CaptionAssembler(maxLines = 2)
         listOf("一", " ", "二", "三").forEach { a.onEvent(TranscriptEvent.Final(it)) }
-        assertEquals(listOf("二", "三"), a.state.lines)
+        assertEquals(listOf("二", "三"), a.state.lines.map { it.text })
     }
 
     @Test
@@ -47,5 +47,16 @@ class CaptionAssemblerTest {
         a.onEvent(TranscriptEvent.Error("沒有網路", recoverable = true))
         assertEquals("沒有網路", a.state.error)
         assertEquals(true, a.state.isListening)
+    }
+
+    @Test
+    fun keepsSpeakerLabels() {
+        val a = CaptionAssembler()
+        a.onEvent(TranscriptEvent.Partial("吃飯了嗎", SpeakerId(0)))
+        assertEquals(SpeakerId(0), a.state.currentSpeaker)
+        a.onEvent(TranscriptEvent.Final("吃飯了嗎", SpeakerId(0)))
+        a.onEvent(TranscriptEvent.Final("還沒", SpeakerId(1)))
+        assertEquals(listOf("A", "B"), a.state.lines.map { it.speaker?.label })
+        assertEquals(null, a.state.currentSpeaker)
     }
 }

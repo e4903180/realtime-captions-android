@@ -31,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tw.captions.app.UiState
+import tw.captions.core.SpeakerId
 import tw.captions.core.SpeechEngine
 
 private val Background = Color.Black
@@ -108,12 +110,21 @@ private fun Captions(ui: UiState, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         itemsIndexed(captions.lines) { _, line ->
-            Text(line, color = FinalText, fontSize = fontSize, lineHeight = lineHeight)
+            Text(
+                buildAnnotatedString {
+                    line.speaker?.let { speakerPrefix(it) }
+                    append(line.text)
+                },
+                color = FinalText,
+                fontSize = fontSize,
+                lineHeight = lineHeight,
+            )
         }
         if (hasCurrent) {
             item {
                 Text(
                     buildAnnotatedString {
+                        captions.currentSpeaker?.let { speakerPrefix(it) }
                         withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
                         withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
                     },
@@ -123,6 +134,17 @@ private fun Captions(ui: UiState, modifier: Modifier) {
             }
         }
     }
+}
+
+// Distinct, high-contrast colors on black, one per speaker.
+private val SpeakerColors = listOf(
+    Color(0xFF80D8FF), Color(0xFFFFAB91), Color(0xFFB9F6CA), Color(0xFFEA80FC), Color(0xFFFFE57F),
+)
+
+private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speaker: SpeakerId) {
+    withStyle(
+        SpanStyle(color = SpeakerColors[speaker.index.mod(SpeakerColors.size)], fontWeight = FontWeight.Bold),
+    ) { append("${speaker.label}：") }
 }
 
 @Composable
