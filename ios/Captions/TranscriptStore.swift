@@ -124,6 +124,14 @@ final class TranscriptStore: ObservableObject {
         save(t)
     }
 
+    /// Every line of transcript [id] said by [old] is shown as [name] (also in exports).
+    func renameSpeaker(_ id: UUID, from old: String, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, var t = all.first(where: { $0.id == id }) else { return }
+        for i in t.lines.indices where t.lines[i].speaker == old { t.lines[i].speaker = name }
+        save(t)
+    }
+
     func delete(_ id: UUID) {
         all.removeAll { $0.id == id }
         try? FileManager.default.removeItem(at: url(id))

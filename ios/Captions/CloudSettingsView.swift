@@ -79,6 +79,15 @@ struct CloudSettingsView: View {
 /// Engine list: one line of explanation per engine.
 struct EnginePickerView: View {
     @ObservedObject var model: CaptionViewModel
+    @ObservedObject private var models: ModelStore
+    @ObservedObject private var second: SecondPassStore
+    @State private var confirmRemove: String?
+
+    init(model: CaptionViewModel) {
+        self.model = model
+        _models = ObservedObject(wrappedValue: model.models)
+        _second = ObservedObject(wrappedValue: model.secondPassStore)
+    }
     @AppStorage("appearance") private var appearance = "system"
     @Environment(\.dismiss) private var dismiss
 
@@ -94,6 +103,7 @@ struct EnginePickerView: View {
                 Section {
                     Toggle("說話者辨識", isOn: $model.speakersOn)
                     if model.speakersOn {
+                        NavigationLink("認得的人（\(VoiceStore.shared.people.count)）") { PeopleView(model: model) }
                         Picker("說話人數", selection: $model.speakerCount) {
                             Text("自動").tag(0)
                             ForEach(2...6, id: \.self) { Text("\($0) 人").tag($0) }
@@ -101,8 +111,36 @@ struct EnginePickerView: View {
                     }
                 } header: { Text("說話者") } footer: {
                     Text(model.speakersOn
-                         ? "分出不同的人，標 A、B、C。知道有幾個人在講話時選人數，離線分人會比較準。"
+                         ? "分出不同的人，標 A、B、C；長按字幕可以替說話者取名字。知道有幾個人在講話時選人數，離線分人會比較準。"
                          : "不分人、不顯示標籤，只照停頓換行；離線時比較省電。")
+                }
+                Section {
+                    Picker("背景過濾", selection: $model.backgroundFilter) {
+                        ForEach(CaptionViewModel.BackgroundFilter.allCases) { Text($0.label).tag($0) }
+                    }
+                } header: { Text("背景聲音") } footer: {
+                    Text("把電視、隔壁桌這類比較小聲的說話聲，以及有「認得的人」之後不認得的聲音，當成背景淡化或隱藏。安靜時也可能誤判小聲的人，所以預設關；第一次記住聲音時會自動改成淡化。只用在離線引擎，看電視模式時不作用。")
+                }
+                Section {
+                    if models.isReady {
+                        HStack {
+                            Text("離線辨識模型（約 \(ModelStore.totalBytes / 1_000_000) MB）")
+                            Spacer()
+                            Button("移除", role: .destructive) { confirmRemove = "offline" }
+                        }
+                    }
+                    if second.isReady {
+                        HStack {
+                            Text("整句重聽模型")
+                            Spacer()
+                            Button("移除", role: .destructive) { confirmRemove = "second" }
+                        }
+                    }
+                    if !models.isReady && !second.isReady {
+                        Text("目前沒有下載的模型").foregroundColor(.secondary)
+                    }
+                } header: { Text("已下載的模型") } footer: {
+                    Text("移除後可以釋放空間；之後要用離線辨識時會再自動下載。")
                 }
                 Section("外觀") {
                     Picker("背景", selection: $appearance) {
@@ -113,6 +151,11 @@ struct EnginePickerView: View {
                 }
                 Section("文字校正") {
                     NavigationLink("整句重聽、AI 校稿") { CorrectionSettingsView(store: model.secondPassStore) }
+                }
+            }
+            .confirmationDialog("移除這個模型？", isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }), titleVisibility: .visible) {
+                Button("移除", role: .destructive) {
+                    if confirmRemove == "offline" { model.removeOfflineModels() } else { model.removeSecondPassModel() }
                 }
             }
             .navigationTitle("辨識引擎")

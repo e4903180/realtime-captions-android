@@ -17,10 +17,12 @@ class VoiceRegistry(
         override fun hashCode() = id
     }
 
-    private val list = mutableListOf<Person>()
+    // Replaced as a whole on every change, so the recognizer's thread always reads a whole list
+    // while the screen adds or removes people.
+    private var list: List<Person> = emptyList()
     private var nextId = 0
 
-    val people: List<Person> get() = list.toList()
+    val people: List<Person> get() = list
     val isEmpty: Boolean get() = list.isEmpty()
 
     /** Adds a person, or refines an existing one's profile when [name] is already registered. */
@@ -30,31 +32,41 @@ class VoiceRegistry(
         if (existing >= 0) {
             val p = list[existing]
             val merged = normalized(FloatArray(e.size) { p.profile[it] + e[it] })
-            return p.copy(profile = merged).also { list[existing] = it }
+            return p.copy(profile = merged).also { updated -> list = list.map { if (it.id == p.id) updated else it } }
         }
-        return Person(nextId++, name, e).also { list += it }
+        return Person(nextId++, name, e).also { list = list + it }
     }
 
     fun remove(id: Int) {
-        list.removeAll { it.id == id }
+        list = list.filterNot { it.id == id }
     }
 
     fun rename(id: Int, name: String) {
-        val i = list.indexOfFirst { it.id == id }
-        if (i >= 0) list[i] = list[i].copy(name = name)
+        list = list.map { if (it.id == id) it.copy(name = name) else it }
     }
 
-    fun clear() = list.clear()
+    fun clear() {
+        list = emptyList()
+    }
+
+    /** Moves [fromId]'s voice into [intoId] (the same person registered twice) and removes [fromId]. */
+    fun merge(fromId: Int, intoId: Int) {
+        val from = list.firstOrNull { it.id == fromId } ?: return
+        val into = list.firstOrNull { it.id == intoId } ?: return
+        if (from.id == into.id) return
+        val merged = normalized(FloatArray(into.profile.size) { into.profile[it] + from.profile[it] })
+        list = list.filterNot { it.id == fromId }.map { if (it.id == intoId) it.copy(profile = merged) else it }
+    }
 
     /** Restores saved people (e.g. from app settings). */
     fun restore(saved: List<Person>) {
-        list.clear()
-        list += saved
+        list = saved.toList()
         nextId = (saved.maxOfOrNull { it.id } ?: -1) + 1
     }
 
     /** The registered person this voice belongs to, or null if it is nobody known. */
     fun match(embedding: FloatArray): Person? {
+        val list = list
         if (list.isEmpty()) return null
         val e = normalized(embedding)
         var best: Person? = null

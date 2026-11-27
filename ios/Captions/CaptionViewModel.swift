@@ -9,6 +9,8 @@ struct Line: Identifiable, Equatable {
     let id: Int64
     let text: String
     let speaker: String?
+    /// Marked as background by the background filter (shown dimmed).
+    var background = false
 }
 
 @MainActor
@@ -19,6 +21,8 @@ final class CaptionViewModel: ObservableObject {
     @Published private(set) var currentSpeaker: String?
     /// The current utterance continues the last line (same speaker, short pause): shown on that line.
     @Published private(set) var continuesLastLine = false
+    /// The line in progress is background speech (dimmed).
+    @Published private(set) var currentBackground = false
     @Published private(set) var level: Float = 0
     @Published private(set) var hint: String?
     @Published private(set) var error: String?
@@ -38,6 +42,36 @@ final class CaptionViewModel: ObservableObject {
         }
     }
     static let reclusterThreshold: Float = 0.45
+
+    enum BackgroundFilter: String, CaseIterable, Identifiable {
+        case off = "OFF", dim = "DIM", hide = "HIDE"
+        var id: String { rawValue }
+        var label: String { self == .off ? "關" : self == .dim ? "淡化" : "隱藏" }
+    }
+
+    /// 背景過濾 (ADR-035): quiet speech and, once someone is remembered, unknown voices count
+    /// as background, shown dimmed or hidden. Offline engine only. Off in TV mode.
+    @Published var backgroundFilter: BackgroundFilter = BackgroundFilter(rawValue: UserDefaults.standard.string(forKey: "backgroundFilter") ?? "") ?? .off {
+        didSet {
+            UserDefaults.standard.set(backgroundFilter.rawValue, forKey: "backgroundFilter")
+            applyBackgroundMode(restart: true)
+        }
+    }
+    private var tvMode: Bool { UserDefaults.standard.bool(forKey: "tvMode") }
+    private var effectiveBackground: BackgroundFilter { tvMode ? .off : backgroundFilter }
+
+    private func applyBackgroundMode(restart: Bool) {
+        assembler.backgroundMode = IosBridgeKt.backgroundModeOf(name: effectiveBackground.rawValue)
+        if restart, running, engineId != EngineInfo.azureId || budgetFallback,
+           offline?.backgroundFilter != (effectiveBackground != .off) {
+            stop(keepBudgetChoice: true)
+            Task { await start() }
+        }
+        apply(assembler.state)
+    }
+
+    /// The caption screen switched TV mode: everything shows while it is on.
+    func tvModeChanged() { applyBackgroundMode(restart: true) }
 
     /// 說話者辨識 (ADR-033). Off: no voice prints, no speaker tags, lines split by pauses only.
     /// Takes effect the next time listening starts.
@@ -114,10 +148,15 @@ final class CaptionViewModel: ObservableObject {
                 if !models.isReady { try await models.download() }
                 let wantSecond = SecondPassModel.isEnabled && secondPassStore.isReady
                 let wantSpeakers = speakersOn
-                if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers {
+                let wantBackground = effectiveBackground != .off
+                assembler.backgroundMode = IosBridgeKt.backgroundModeOf(name: effectiveBackground.rawValue)
+                if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers || offline?.backgroundFilter != wantBackground {
                     let files = models.files
                     let second = wantSecond ? secondPassStore.directory : nil
-                    offline = await Task.detached(priority: .userInitiated) { OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second) }.value
+                    let registry = VoiceStore.shared.registry
+                    offline = await Task.detached(priority: .userInitiated) {
+                        OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second, registry: registry, backgroundFilter: wantBackground)
+                    }.value
                 }
                 guard let offline else { return }
                 offline.onRevision = { [weak self] n, text in
@@ -214,6 +253,44 @@ final class CaptionViewModel: ObservableObject {
         finalSeqs.removeAll()
         reviewed.removeAll()
         apply(assembler.state)
+    }
+
+    /// Whether line [id] has a voice print (offline engine with speakers on), so it can be remembered.
+    func hasVoice(_ id: Int64) -> Bool {
+        guard let i = lines.firstIndex(where: { $0.id == id }), i < assembler.state.lines.count else { return false }
+        return assembler.state.lines[i].voice != nil
+    }
+
+    /// 「這是誰」: names the speaker of line [id] (all their lines with [wholeSpeaker]) and, with
+    /// [remember], learns the voice so later sessions show the name too (ADR-034).
+    func nameSpeaker(of id: Int64, as name: String, wholeSpeaker: Bool, remember: Bool) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let i = lines.firstIndex(where: { $0.id == id }), i < assembler.state.lines.count else { return }
+        if remember, let voice = assembler.state.lines[i].voice {
+            let first = VoiceStore.shared.people.isEmpty
+            VoiceStore.shared.remember(name: name, voice: voice)
+            // Like Android (ADR-022): once someone is known, other voices are dimmed, not hidden.
+            if first && backgroundFilter == .off && !tvMode { backgroundFilter = .dim }
+        }
+        apply(wholeSpeaker ? assembler.nameSpeaker(index: Int32(i), name: name) : assembler.nameLine(index: Int32(i), name: name))
+    }
+
+    /// A person was renamed on the 認得的人 page: their lines on screen follow.
+    func renameSpeaker(_ old: String, to name: String) {
+        apply(assembler.renameSpeaker(oldName: old, name: name))
+    }
+
+    /// Frees the space of the downloaded offline models; they download again on the next start.
+    func removeOfflineModels() {
+        if running && (engineId != EngineInfo.azureId || budgetFallback) { stop() }
+        offline = nil
+        models.delete()
+    }
+
+    func removeSecondPassModel() {
+        if running && offline?.hasSecondPass == true { stop() }
+        offline = nil
+        secondPassStore.delete()
     }
 
     func changeFontSize(by delta: Double) {
@@ -356,7 +433,7 @@ final class CaptionViewModel: ObservableObject {
 
     private func apply(_ state: CaptionState) {
         let newLines = state.lines.enumerated().map { i, line in
-            Line(id: assembler.lineId(index: Int32(i)), text: line.text, speaker: IosBridgeKt.speakerLabelOf(line: line))
+            Line(id: assembler.lineId(index: Int32(i)), text: line.text, speaker: IosBridgeKt.speakerLabelOf(line: line), background: line.background)
         }
         if newLines != lines {
             lines = newLines
@@ -367,6 +444,7 @@ final class CaptionViewModel: ObservableObject {
         tentativeText = state.tentativeText
         currentSpeaker = IosBridgeKt.currentSpeakerLabelOf(state: state)
         continuesLastLine = state.continuesLastLine && !newLines.isEmpty
+        currentBackground = state.currentBackground
         level = state.audioLevel
         hint = state.hint
         if let e = state.error { error = e }

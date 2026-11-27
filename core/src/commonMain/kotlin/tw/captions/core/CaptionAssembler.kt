@@ -100,6 +100,7 @@ class CaptionAssembler(
 
     fun reset() {
         state = CaptionState()
+        speakerNames.clear()
         parts.clear()
         finals = 0
         lastPartial = ""
@@ -127,7 +128,9 @@ class CaptionAssembler(
         return if (needsComma) "$a，$b" else if (end.isLetterOrDigit() && b.firstOrNull()?.isLetterOrDigit() == true) "$a $b" else a + b
     }
 
-    fun onEvent(event: TranscriptEvent): CaptionState {
+    fun onEvent(event: TranscriptEvent): CaptionState = handle(withSpeakerName(event))
+
+    private fun handle(event: TranscriptEvent): CaptionState {
         state = when (event) {
             TranscriptEvent.Listening -> state.copy(isListening = true, error = null)
 
@@ -243,6 +246,39 @@ class CaptionAssembler(
         if (relabeled == lines.map { it.speaker }) return state
         state = state.copy(lines = lines.mapIndexed { i, l -> if (l.speaker == relabeled[i]) l else l.copy(speaker = relabeled[i]) })
         return state
+    }
+
+    /** Names given to speaker labels this session: new lines from that label show the name too. */
+    private val speakerNames = mutableMapOf<SpeakerId, String>()
+
+    /**
+     * Names the speaker of line [index]: that line and every other line with the same label get
+     * [name], and so do later lines with that label (until [reset]). Lines without a label only
+     * name themselves.
+     */
+    fun nameSpeaker(index: Int, name: String): CaptionState {
+        val line = state.lines.getOrNull(index) ?: return state
+        val speaker = line.speaker
+        if (speaker != null) speakerNames[speaker] = name
+        state = state.copy(lines = state.lines.mapIndexed { i, l ->
+            if (i == index || (speaker != null && l.speaker == speaker && l.speakerName == null)) l.copy(speakerName = name, background = false) else l
+        })
+        return state
+    }
+
+    /** Puts [name] on every line that shows [oldName] (renaming a person). */
+    fun renameSpeaker(oldName: String, name: String): CaptionState {
+        for (k in speakerNames.filterValues { it == oldName }.keys) speakerNames[k] = name
+        state = state.copy(lines = state.lines.map { if (it.speakerName == oldName) it.copy(speakerName = name) else it })
+        return state
+    }
+
+    private fun withSpeakerName(event: TranscriptEvent): TranscriptEvent = when {
+        event is TranscriptEvent.Final && event.speakerName == null && event.speaker != null ->
+            speakerNames[event.speaker]?.let { event.copy(speakerName = it) } ?: event
+        event is TranscriptEvent.Partial && event.speakerName == null && event.speaker != null ->
+            speakerNames[event.speaker]?.let { event.copy(speakerName = it) } ?: event
+        else -> event
     }
 
     /** Shows [name] on a finished line (after the user said who it was). */
