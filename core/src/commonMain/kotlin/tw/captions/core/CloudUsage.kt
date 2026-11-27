@@ -13,8 +13,8 @@ data class CloudUsage(val azureSecondsByDay: Map<String, Double> = emptyMap()) {
 
     /** Editable prices, because they change and depend on the plan. */
     data class Prices(
-        /** Azure Speech real-time transcription, US$ per audio hour. */
-        val azurePerHour: Double = 1.0,
+        /** Azure Speech real-time transcription with speaker labels (1.00 + 0.30), US$ per audio hour. */
+        val azurePerHour: Double = 1.3,
         /** On the free tier (F0) the first [AZURE_FREE_HOURS] each month cost nothing. */
         val azureFreeTier: Boolean = true,
         /** Monthly spending limit in US dollars; 0 means no limit. */

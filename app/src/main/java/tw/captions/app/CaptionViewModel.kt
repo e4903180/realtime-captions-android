@@ -129,7 +129,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (job != null && isPaid(_ui.value.engineId) && limitReached()) switchToOfflineForLimit()
     }
 
-    /** The user chose to keep using the cloud past the limit; holds until the app is closed. */
+    /** The user chose to keep using the cloud past the limit; holds until they press stop. */
     private var limitOverridden = false
 
     private fun isPaid(engineId: String) = EngineCatalog.byId(engineId)?.paid == true
@@ -143,12 +143,18 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         start()
     }
 
-    /** From the limit notice: go back to the cloud engine and stop asking until the app is closed. */
+    /** From the limit notice: go back to the cloud engine and stop asking until the user presses stop. */
     fun continueCloudAnyway() {
         limitOverridden = true
         _ui.update { it.copy(usageLimitHit = false) }
         selectEngine(AzureSpeechEngine.ID)
         if (job == null) start()
+    }
+
+    /** The stop button: ends this session, so the next start asks again if still over the limit. */
+    fun stopByUser() {
+        limitOverridden = false
+        stop()
     }
 
     fun dismissLimitNotice() {

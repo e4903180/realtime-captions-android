@@ -23,7 +23,7 @@ class UsageStore(context: Context) {
     }
 
     fun loadPrices() = CloudUsage.Prices(
-        azurePerHour = prefs.getFloat(KEY_PRICE, 1.0f).toDouble(),
+        azurePerHour = prefs.getFloat(KEY_PRICE, 1.3f).toDouble(),
         azureFreeTier = prefs.getBoolean(KEY_FREE, true),
         monthlyLimit = prefs.getFloat(KEY_LIMIT, 0f).toDouble(),
     )

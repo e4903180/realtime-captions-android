@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
                 ui = ui,
                 engines = viewModel.engines,
                 onStart = ::startWithPermission,
-                onStop = viewModel::stop,
+                onStop = viewModel::stopByUser,
                 onOpenEngines = { showEngines = true },
                 onOpenSettings = { showSettings = true },
                 onToggleBackground = viewModel::toggleBackground,
