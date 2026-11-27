@@ -46,6 +46,12 @@ sealed interface TranscriptEvent {
     data class Final(val text: String, val speaker: SpeakerId? = null) : TranscriptEvent
 
     data class Error(val message: String, val recoverable: Boolean) : TranscriptEvent
+
+    /** Microphone input level, 0.0 (silence) to 1.0 (loud). Emitted often; cheap to handle. */
+    data class AudioLevel(val level: Float) : TranscriptEvent
+
+    /** The engine listened but heard no speech (silence or nothing understood). */
+    data object NoSpeechDetected : TranscriptEvent
 }
 
 /** Anonymous speaker label assigned by speaker diarization, e.g. 0 → "A", 1 → "B". */
