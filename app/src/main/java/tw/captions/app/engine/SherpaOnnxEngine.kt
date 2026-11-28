@@ -103,7 +103,12 @@ class SherpaOnnxEngine(
             // the assembler also joins a person's utterances less than 1.5 s apart (ADR-024).
             val pipeline = StreamingPipeline(
                 asr, vad, embedder, clusterer,
-                config = tw.captions.core.PipelineConfig(vadEndpointSilenceSec = 0.6f, focusMarginDb = if (focusOn()) 8f else null),
+                config = tw.captions.core.PipelineConfig(
+                    vadEndpointSilenceSec = 0.6f,
+                    focusMarginDb = if (focusOn()) 8f else null,
+                    // Voices nobody named count as background only when the user turned the filter on (like iPhone).
+                    unknownIsBackground = focusOn(),
+                ),
                 enhancer = denoiser,
                 registry = if (withSpeakers) registry else null,
             )
