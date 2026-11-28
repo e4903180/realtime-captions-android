@@ -79,9 +79,9 @@ fun AppTheme(appearance: Appearance, content: @Composable () -> Unit) {
     }
     val p = if (dark) DarkPalette else LightPalette
     val scheme = if (dark) {
-        darkColorScheme(background = p.background, surface = p.surface, primary = p.accent)
+        darkColorScheme(background = p.background, surface = p.surface, primary = p.accent, onPrimary = Color.Black)
     } else {
-        lightColorScheme(background = p.background, surface = p.surface, primary = p.accent)
+        lightColorScheme(background = p.background, surface = p.surface, primary = p.accent, onPrimary = Color.White)
     }
     CompositionLocalProvider(LocalPalette provides p) {
         MaterialTheme(colorScheme = scheme, content = content)

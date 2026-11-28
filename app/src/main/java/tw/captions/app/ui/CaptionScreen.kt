@@ -75,7 +75,7 @@ fun CaptionScreen(
                 .safeDrawingPadding(),
         ) {
             Box(Modifier.weight(1f)) {
-                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize(), onNameLine)
+                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize().padding(top = 48.dp), onNameLine)
                 // 看電視 toggle, top right (same place as on iPhone, ADR-032).
                 FilterChip(
                     selected = ui.tvMode,
@@ -116,10 +116,10 @@ fun CaptionScreen(
                 )
             }
             ui.cloudNotice?.let {
-                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
+                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             ui.proofreadNotice?.let {
-                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
+                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             ui.captions.error?.let {
                 Text(
@@ -152,10 +152,7 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
     val hasCurrent = captions.stableText.isNotEmpty() || captions.tentativeText.isNotEmpty()
     val itemCount = captions.lines.size + if (hasCurrent) 1 else 0
 
-    // Always follow the newest text.
-    LaunchedEffect(itemCount, captions.stableText, captions.tentativeText) {
-        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
-    }
+    FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
 
     val fontSize = ui.fontSizeSp.sp
     val lineHeight = (ui.fontSizeSp * 1.3f).sp
@@ -216,43 +213,70 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
 }
 
 /**
- * 看電視: only the newest two or three lines, 1.25× larger, centred near the bottom, older line
- * faded, no speaker labels and no scrolling (ADR-032).
+ * Keeps the list on the newest text, unless the reader has scrolled back to read older lines; it
+ * follows again once they scroll back down to the end.
+ */
+@Composable
+private fun FollowNewest(listState: androidx.compose.foundation.lazy.LazyListState, itemCount: Int, stable: String, tentative: String) {
+    var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling -> if (!scrolling) follow = !listState.canScrollForward }
+    }
+    LaunchedEffect(itemCount, stable, tentative) {
+        if (follow && itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+    }
+}
+
+/**
+ * 看電視: 1.25× larger, centred, resting near the bottom, older lines faded, no speaker labels
+ * (ADR-032). The whole session can be scrolled back; it follows the newest line otherwise.
  */
 @Composable
 private fun TvCaptions(ui: UiState, modifier: Modifier) {
     val captions = ui.captions
-    val current = captions.stableText + captions.tentativeText
-    val recent = captions.lines.map { it.text }.let { if (current.isEmpty()) it.takeLast(3) else it.takeLast(2) }
+    val hasCurrent = captions.stableText.isNotEmpty() || captions.tentativeText.isNotEmpty()
+    val itemCount = captions.lines.size + if (hasCurrent) 1 else 0
     val size = (ui.fontSizeSp * 1.25f)
-    Column(
-        modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+    val listState = rememberLazyListState()
+    FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
+
+    if (itemCount == 0) {
+        Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(if (ui.running) "正在聽…" else "按下「開始」顯示字幕", color = TentativeText, fontSize = 24.sp)
+        }
+        return
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (recent.isEmpty() && current.isEmpty()) {
-            Text(if (ui.running) "正在聽…" else "按下「開始」顯示字幕", color = TentativeText, fontSize = 24.sp)
-        }
-        recent.forEachIndexed { i, text ->
-            val newest = i == recent.lastIndex && current.isEmpty()
+        itemsIndexed(captions.lines) { index, line ->
+            val newest = index == captions.lines.lastIndex && !hasCurrent
             Text(
-                text,
+                line.text,
                 color = if (newest) FinalText else FinalText.copy(alpha = 0.5f),
                 fontSize = size.sp,
                 lineHeight = (size * 1.3f).sp,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
-        if (current.isNotEmpty()) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
-                    withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
-                },
-                fontSize = size.sp,
-                lineHeight = (size * 1.3f).sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+        if (hasCurrent) {
+            item {
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
+                        withStyle(SpanStyle(color = TentativeText)) { append(captions.tentativeText) }
+                    },
+                    fontSize = size.sp,
+                    lineHeight = (size * 1.3f).sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -283,6 +307,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speak
     withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append("${name ?: speaker!!.label}：") }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Controls(
     ui: UiState,
@@ -307,7 +332,7 @@ private fun Controls(
         ) {
             Text("引擎：$current  ▾", fontSize = 18.sp, color = Ink)
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
             TextButton(onClick = onOpenTranscripts) { Text("紀錄", fontSize = 18.sp, color = Ink) }
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Ink) }
             TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Ink) }
