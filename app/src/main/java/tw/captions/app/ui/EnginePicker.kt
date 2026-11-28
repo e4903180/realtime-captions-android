@@ -123,7 +123,7 @@ fun EnginePicker(
             androidx.compose.material3.OutlinedTextField(
                 value = words,
                 onValueChange = { words = it },
-                label = { Text("一行一個詞，例如家人名字、地名、專有名詞") },
+                label = { Text("一行一個詞，例如人名、地名、專有名詞") },
                 minLines = 3,
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth(),

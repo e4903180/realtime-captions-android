@@ -1,6 +1,6 @@
-# 2026-11-28 Android 正式版（給家人用）
+# 2026-11-28 Android 正式版
 
-- tony 要給家人用 Android 版，選擇先直接傳 APK（ADR-037）。
+- 要讓其他人也能安裝 Android 版，選擇先直接傳 APK（ADR-037）。
 - 建立正式簽章金鑰（RSA 4096，PKCS12，效期約 33 年），密碼隨機產生；金鑰與密碼都放在 `datasets/release/`，不進 git。
 - `app/build.gradle.kts`：正式版簽章設定（檔案不存在時不簽章）、versionCode 用 commit 數、正式版只帶 arm64 原生函式庫。
 - 模擬器（Pixel 8，x86_64，用 `-PwithX86=true` 編的測試版）實測：
@@ -9,4 +9,4 @@
   - 看電視、字體大小、停止、紀錄頁正常；沒有當掉。
   - 用同一把金鑰編 versionCode 較高的版本覆蓋安裝：成功，模型不用重新下載，設定保留。
   - 限制：正式版不能用偵錯音檔，所以字幕內容沒有在正式版上實測；字幕和說話者的行為用同一版程式的 debug 版測過。
-- 家人安裝說明：docs/install-android.md。
+- 安裝說明：docs/install-android.md。
