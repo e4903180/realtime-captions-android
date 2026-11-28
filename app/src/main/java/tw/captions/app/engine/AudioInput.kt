@@ -30,11 +30,15 @@ class MicInput @SuppressLint("MissingPermission") constructor(
         SAMPLE_RATE,
         AudioFormat.CHANNEL_IN_MONO,
         AudioFormat.ENCODING_PCM_16BIT,
-        maxOf(minBytes, SAMPLE_RATE * 2 / 2), // at least 0.5 s
+        // 3 s: a busy phone (recognizer, speaker model, screen) must not make the microphone overrun.
+        maxOf(minBytes, SAMPLE_RATE * 2 * 3),
     )
     private val suppressor: NoiseSuppressor? =
         if (noiseSuppression && NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(record.audioSessionId)?.apply { enabled = true } }.getOrNull() else null
     private var pcm = ShortArray(0)
+
+    /** For telling whether another app took the microphone (see AudioManager.AudioRecordingCallback). */
+    val audioSessionId: Int get() = record.audioSessionId
 
     init {
         check(record.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord init failed" }
@@ -71,12 +75,24 @@ class MicInput @SuppressLint("MissingPermission") constructor(
  * time, so captions and speaker tags can be checked on an emulator without anyone speaking.
  * Ends with a few seconds of silence so the last line gets finished.
  */
-class WavFileInput(file: File) : AudioInput {
+class WavFileInput(private val file: File) : AudioInput {
     private val samples: ShortArray
     private var pos = 0
     private var tail = SAMPLE_RATE * 3
     private val startMs = SystemClock.elapsedRealtime()
     private var played = 0L
+
+    companion object {
+        /**
+         * Where each file was when its last reader closed. A new reader of the same file (the
+         * cloud engine failed and the offline one takes over) continues from there instead of
+         * playing the file from the beginning again.
+         */
+        private val resumeAt = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+        /** The next reader starts at the beginning (the user pressed stop, or chose another file). */
+        fun rewindAll() = resumeAt.clear()
+    }
 
     init {
         val bytes = file.readBytes()
@@ -98,9 +114,11 @@ class WavFileInput(file: File) : AudioInput {
             p += 8 + len + (len and 1)
         }
         samples = requireNotNull(data) { "$file has no audio data" }
+        pos = (resumeAt[file.absolutePath] ?: 0).coerceIn(0, samples.size)
         Log.i(TAG, "wav input: ${file.name}, ${samples.size / SAMPLE_RATE.toFloat()} s")
     }
 
+    @Synchronized
     override fun read(buffer: FloatArray): Int {
         if (pos >= samples.size && tail <= 0) return -1
         var n = 0
@@ -117,7 +135,90 @@ class WavFileInput(file: File) : AudioInput {
         return n
     }
 
-    override fun close() {}
+    @Synchronized
+    override fun close() {
+        if (pos >= samples.size) resumeAt.remove(file.absolutePath) else resumeAt[file.absolutePath] = pos
+    }
+}
+
+/**
+ * Reads [source] on its own high-priority thread into a queue, so slow recognition never keeps
+ * the microphone waiting (which loses audio). Holds up to [maxBufferedSec] seconds; if processing
+ * falls further behind, the oldest audio is dropped.
+ */
+class BufferedAudioInput(
+    private val source: AudioInput,
+    private val chunkSamples: Int = SAMPLE_RATE / 50,
+    maxBufferedSec: Int = 30,
+    /** Raises the reader thread's priority; replaceable in tests (android.os.Process is not on the JVM). */
+    private val raisePriority: () -> Unit = { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) },
+) : AudioInput {
+    private val queue = java.util.concurrent.LinkedBlockingDeque<FloatArray>(maxOf(1, maxBufferedSec * SAMPLE_RATE / chunkSamples))
+    @Volatile private var stopped = false
+    @Volatile private var ended = false
+    @Volatile var dropped = 0L
+        private set
+    private var current: FloatArray? = null
+    private var offset = 0
+
+    private val reader = Thread({
+        runCatching { raisePriority() }
+        try {
+            val chunk = FloatArray(chunkSamples)
+            while (!stopped) {
+                val n = source.read(chunk)
+                if (n < 0) break
+                if (n == 0) continue
+                val copy = chunk.copyOf(n)
+                while (!queue.offerLast(copy)) {
+                    queue.pollFirst()
+                    dropped += n
+                    if (dropped % (SAMPLE_RATE * 5L) < n) Log.w(TAG, "processing is behind; dropped ${dropped / SAMPLE_RATE} s of audio")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "audio reader stopped", e)
+        } finally {
+            ended = true
+        }
+    }, "captions-audio").apply { isDaemon = true; start() }
+
+    override fun read(buffer: FloatArray): Int {
+        var got = 0
+        while (got < buffer.size) {
+            val c = current ?: run {
+                // Hand back what we have rather than wait when the input has ended.
+                val next = if (got > 0 && ended) queue.pollFirst() else pollWhileRunning()
+                next ?: return if (got > 0) got else -1
+            }
+            current = c
+            val n = minOf(c.size - offset, buffer.size - got)
+            System.arraycopy(c, offset, buffer, got, n)
+            got += n
+            offset += n
+            if (offset >= c.size) {
+                current = null
+                offset = 0
+            }
+        }
+        return got
+    }
+
+    /** Next chunk, or null when the input ended (or was closed) and nothing is left. */
+    private fun pollWhileRunning(): FloatArray? {
+        while (true) {
+            queue.pollFirst(100, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { return it }
+            if (stopped || (ended && queue.isEmpty())) return null
+        }
+    }
+
+    override fun close() {
+        stopped = true
+        // A read returns within one chunk (20 ms); only then is it safe to release the source.
+        reader.join(1000)
+        source.close()
+        queue.clear()
+    }
 }
 
 const val SAMPLE_RATE = 16_000

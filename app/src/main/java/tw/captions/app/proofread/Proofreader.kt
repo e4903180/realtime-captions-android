@@ -35,7 +35,27 @@ object Proofreader {
     /** Corrected text by line id (only lines the model changed), and the tokens the request used. */
     class Result(val fixed: Map<Long, String>, val inputTokens: Long, val outputTokens: Long)
 
-    private fun client(key: String) = AnthropicOkHttpClient.builder().apiKey(key).timeout(Duration.ofSeconds(60)).build()
+    private var cachedKey: String? = null
+    private var cachedClient: com.anthropic.client.AnthropicClient? = null
+
+    /** One client (and its connection pool and threads) per key; replaced and closed when the key changes. */
+    @Synchronized
+    private fun client(key: String): com.anthropic.client.AnthropicClient {
+        cachedClient?.takeIf { cachedKey == key }?.let { return it }
+        cachedClient?.close()
+        return AnthropicOkHttpClient.builder().apiKey(key).timeout(Duration.ofSeconds(60)).build().also {
+            cachedClient = it
+            cachedKey = key
+        }
+    }
+
+    /** Releases the client (key removed, app closed). */
+    @Synchronized
+    fun close() {
+        cachedClient?.close()
+        cachedClient = null
+        cachedKey = null
+    }
 
     private fun toPlain(v: Any?): Any? = when (v) {
         is JSONObject -> v.keys().asSequence().associateWith { toPlain(v.get(it)) }

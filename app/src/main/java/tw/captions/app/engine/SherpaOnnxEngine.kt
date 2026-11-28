@@ -88,7 +88,8 @@ class SherpaOnnxEngine(
         val embedder = if (withSpeakers) Embedder(models) else null
         val denoiser = if (useDenoiser) Denoiser(models) else null
         val input = try {
-            openInput()
+            // Read on its own thread so a slow moment in recognition does not lose microphone audio.
+            BufferedAudioInput(openInput())
         } catch (e: Exception) {
             Log.e(TAG, "audio input failed", e)
             asr.close(); vad.close(); embedder?.close(); denoiser?.close()
@@ -111,7 +112,8 @@ class SherpaOnnxEngine(
                 if (n < 0) break
                 val events = pipeline.feed(if (n == chunk.size) chunk else chunk.copyOf(n))
                 for (e in events) {
-                    if (e is TranscriptEvent.Final) Log.i(TAG, "final [${e.speaker?.label}] ${e.text}")
+                    // Never write what people said to the system log in release builds.
+                    if (e is TranscriptEvent.Final && tw.captions.app.BuildConfig.DEBUG) Log.i(TAG, "final [${e.speaker?.label}] ${e.text}")
                     emit(e)
                 }
             }

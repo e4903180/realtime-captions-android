@@ -41,6 +41,11 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        // Plain JVM tests: android.util.Log and friends return defaults instead of throwing.
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources.excludes += listOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
     }
@@ -77,4 +82,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

@@ -35,11 +35,19 @@ class ListeningService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        // 停止 right from the notification (handled by the view model, which listens for it).
+        val stop = PendingIntent.getBroadcast(
+            this,
+            1,
+            Intent(ACTION_STOP).setPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("即時字幕正在收音")
             .setContentText("點一下回到字幕畫面")
             .setContentIntent(open)
+            .addAction(0, "停止", stop)
             .setOngoing(true)
             .build()
         ServiceCompat.startForeground(
@@ -52,6 +60,7 @@ class ListeningService : Service() {
     }
 
     companion object {
+        const val ACTION_STOP = "tw.captions.app.STOP"
         private const val CHANNEL_ID = "listening"
         private const val NOTIFICATION_ID = 1
 

@@ -60,7 +60,8 @@ val LightPalette = Palette(
     error = Color(0xFFC62828),
     warn = Color(0xFFB45F06),
     accent = Color(0xFF2E7D32),
-    backgroundSpeech = Color(0xFF9E9E9E),
+    // At least 3:1 on white (0x9E9E9E was 2.7:1); 0x767676 is 4.5:1.
+    backgroundSpeech = Color(0xFF767676),
     meterTrack = Color(0xFFE0E0E0),
     speakers = listOf(Color(0xFF01579B), Color(0xFFBF360C), Color(0xFF1B5E20), Color(0xFF6A1B9A), Color(0xFF795548)),
 )
@@ -90,3 +91,23 @@ fun AppTheme(appearance: Appearance, content: @Composable () -> Unit) {
 
 /** Shorthands for the current palette. */
 val Ink: Color @Composable get() = LocalPalette.current.text
+
+/**
+ * Inside a ModalBottomSheet: the sheet has its own window, which picks status-bar icon colours
+ * from the system setting. With a forced dark / light appearance that gives white icons on white
+ * (or black on black); set them from the app's palette instead.
+ */
+@Composable
+fun SheetStatusBar() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val light = !LocalPalette.current.dark
+    androidx.compose.runtime.SideEffect {
+        var parent: android.view.ViewParent? = view.parent
+        while (parent != null && parent !is androidx.compose.ui.window.DialogWindowProvider) parent = parent.parent
+        val window = (parent as? androidx.compose.ui.window.DialogWindowProvider)?.window ?: return@SideEffect
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
+    }
+}

@@ -1,6 +1,7 @@
 package tw.captions.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -40,6 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import tw.captions.app.UiState
 import tw.captions.core.SpeakerId
 import tw.captions.core.SpeechEngine
@@ -62,10 +66,13 @@ fun CaptionScreen(
     onToggleBackground: () -> Unit,
     onClear: () -> Unit,
     onFontSize: (Int) -> Unit,
-    onNameLine: (Int, String) -> Unit = { _, _ -> },
+    onNameLine: (Long, String) -> Unit = { _, _ -> },
     onOpenPeople: () -> Unit = {},
     onToggleTv: () -> Unit = {},
     onOpenTranscripts: () -> Unit = {},
+    /** Microphone level 0..1, read only where the meter draws (it changes 15 times a second). */
+    audioLevel: () -> Float = { 0f },
+    onResumeAfterIdle: () -> Unit = {},
 ) {
     run {
         Column(
@@ -89,7 +96,7 @@ fun CaptionScreen(
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
             }
-            if (ui.running) LevelMeter(ui.captions.audioLevel)
+            if (ui.running) LevelMeter(audioLevel)
             ui.modelDownload?.let { p ->
                 Text(
                     "正在下載離線模型… ${(p * 100).toInt()}%",
@@ -97,7 +104,7 @@ fun CaptionScreen(
                     fontSize = 18.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                LevelMeter(p)
+                LevelMeter { p }
             }
             ui.debugWav?.let {
                 Text(
@@ -114,6 +121,25 @@ fun CaptionScreen(
                     fontSize = 18.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+            }
+            if (ui.micSilenced) {
+                Text(
+                    "麥克風被其他 App 使用中（例如通話或錄音），暫時收不到聲音",
+                    color = LocalPalette.current.warn,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (ui.idlePaused && !ui.running) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "10 分鐘沒有聽到說話，已自動暫停（雲端也不再計費）",
+                        color = LocalPalette.current.warn,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onResumeAfterIdle) { Text("繼續", fontSize = 18.sp, color = Ink) }
+                }
             }
             ui.cloudNotice?.let {
                 Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
@@ -144,9 +170,10 @@ fun CaptionScreen(
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) -> Unit) {
-    var naming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Int?>(null) }
-    naming?.let { index -> NameDialog(ui, onDismiss = { naming = null }, onName = { onNameLine(index, it); naming = null }) }
+private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Long, String) -> Unit) {
+    // The line's id, not its index: lines shift while the dialog is open (old ones are dropped).
+    var naming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Long?>(null) }
+    naming?.let { id -> NameDialog(ui, onDismiss = { naming = null }, onName = { onNameLine(id, it); naming = null }) }
     val captions = ui.captions
     val listState = rememberLazyListState()
     val hasCurrent = captions.stableText.isNotEmpty() || captions.tentativeText.isNotEmpty()
@@ -176,12 +203,19 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        itemsIndexed(captions.lines) { index, line ->
+        itemsIndexed(captions.lines, key = { index, _ -> lineKey(ui, index) }) { index, line ->
             // Long-press a line to say who said it (認聲音); only lines with a voice profile can be named.
-            val press = if (line.voice != null) Modifier.combinedClickable(onClick = {}, onLongClick = { naming = index }) else Modifier
+            val id = ui.lineIds.getOrNull(index)?.takeIf { it >= 0 }
+            val press = if (line.voice != null && id != null) {
+                Modifier.combinedClickable(onClick = {}, onLongClickLabel = "指定說話者", onLongClick = { naming = id })
+            } else Modifier
+            // Screen readers announce the newest finished line once (not every partial word).
+            val announce = if (index == captions.lines.lastIndex) {
+                Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            } else Modifier
             if (line.background) {
                 // Much quieter than the conversation (TV, other tables): small and gray.
-                Text("背景：${line.text}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp, modifier = press)
+                Text("背景：${line.text}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp, modifier = press.then(announce))
             } else {
                 Text(
                     buildAnnotatedString {
@@ -191,12 +225,12 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
                     color = FinalText,
                     fontSize = fontSize,
                     lineHeight = lineHeight,
-                    modifier = press,
+                    modifier = press.then(announce),
                 )
             }
         }
         if (hasCurrent) {
-            item {
+            item(key = CURRENT_KEY) {
                 if (captions.currentBackground) {
                     Text("背景：${captions.stableText}${captions.tentativeText}", color = BackgroundText, fontSize = (ui.fontSizeSp * 0.55f).sp)
                 } else Text(
@@ -279,10 +313,11 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        itemsIndexed(captions.lines) { index, line ->
+        itemsIndexed(captions.lines, key = { index, _ -> lineKey(ui, index) }) { index, line ->
             val newest = index == captions.lines.lastIndex && !hasCurrent
             Text(
                 line.text,
+                modifier = if (index == captions.lines.lastIndex) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
                 color = if (newest) FinalText else FinalText.copy(alpha = 0.5f),
                 fontSize = size.sp,
                 lineHeight = (size * 1.3f).sp,
@@ -290,7 +325,7 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
             )
         }
         if (hasCurrent) {
-            item {
+            item(key = CURRENT_KEY) {
                 Text(
                     buildAnnotatedString {
                         withStyle(SpanStyle(color = StableText)) { append(captions.stableText) }
@@ -307,23 +342,29 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
     }
 }
 
+private const val CURRENT_KEY = "current"
+
+/** List key of line [index]: its stable id, so a line keeps its place (and state) when older lines are dropped. */
+private fun lineKey(ui: UiState, index: Int): Any = ui.lineIds.getOrNull(index)?.takeIf { it >= 0 } ?: "line-$index"
+
 /** Thin bar showing the microphone level, so the reader can see that sound is coming in. */
 @Composable
-private fun LevelMeter(level: Float) {
+private fun LevelMeter(level: () -> Float) {
+    val accent = LocalPalette.current.accent
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .height(6.dp)
-            .background(LocalPalette.current.meterTrack, CircleShape),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(level.coerceIn(0f, 1f))
-                .height(6.dp)
-                .background(LocalPalette.current.accent, CircleShape),
-        )
-    }
+            .background(LocalPalette.current.meterTrack, CircleShape)
+            // The level is read while drawing, so a new level only redraws this bar.
+            .drawBehind {
+                val w = size.width * level().coerceIn(0f, 1f)
+                if (w > 0f) {
+                    drawRoundRect(accent, size = androidx.compose.ui.geometry.Size(w, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+                }
+            },
+    )
 }
 
 // Distinct, high-contrast colors for the current background, one per speaker (see Palette).

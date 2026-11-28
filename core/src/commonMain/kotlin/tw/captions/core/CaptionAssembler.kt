@@ -317,6 +317,19 @@ class CaptionAssembler(
         while (i < n && a[i] == b[i]) i++
         return i
     }
+
+    /**
+     * The user forgot the person called [name]: lines showing that name go back to their speaker
+     * letter, and later lines from that letter are no longer named.
+     */
+    fun forgetSpeaker(name: String): CaptionState {
+        speakerNames.entries.removeAll { it.value == name }
+        state = state.copy(
+            lines = state.lines.map { if (it.speakerName == name) it.copy(speakerName = null) else it },
+            currentSpeakerName = state.currentSpeakerName?.takeIf { it != name },
+        )
+        return state
+    }
 }
 
 private fun unitVector(v: FloatArray): FloatArray {
