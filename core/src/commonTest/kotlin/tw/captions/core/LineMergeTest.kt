@@ -22,7 +22,7 @@ class LineMergeTest {
         val a = assembler()
         a.say("今天天氣很好", 0, 0.0, 1.5)
         val s = a.say("我們去散步吧", 0, 2.2, 3.5)
-        assertEquals(listOf("今天天氣很好，我們去散步吧"), s.lines.map { it.text })
+        assertEquals(listOf("今天天氣很好 我們去散步吧"), s.lines.map { it.text })
     }
 
     @Test

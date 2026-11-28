@@ -27,7 +27,7 @@ class SecondPassTest {
         a.say("好啊", 1, 3.0, 3.5)
         a.revise(second, "我們去散步")
         val s = a.revise(first, "今天天氣很好")
-        assertEquals(listOf("今天天氣很好，我們去散步", "好啊"), s.lines.map { it.text })
+        assertEquals(listOf("今天天氣很好 我們去散步", "好啊"), s.lines.map { it.text })
         assertEquals(SpeakerId(0), s.lines[0].speaker)
     }
 
