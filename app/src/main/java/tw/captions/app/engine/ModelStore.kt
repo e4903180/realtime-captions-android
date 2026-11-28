@@ -2,13 +2,18 @@ package tw.captions.app.engine
 
 import android.content.Context
 import android.util.Log
+import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
 import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -22,8 +27,15 @@ import kotlin.coroutines.coroutineContext
  * speaker model, denoiser) are downloaded once. Every pack can be removed again. Every download
  * is checked against its SHA-256.
  */
-class ModelStore(context: Context) {
-    val dir = File(context.filesDir, "models")
+class ModelStore(
+    val dir: File,
+    /** Free bytes on the disk holding [dir]; replaceable in tests. */
+    private val freeBytes: (File) -> Long = { StatFs(it.path).availableBytes },
+) {
+    constructor(context: Context) : this(File(context.filesDir, "models"))
+
+    /** The phone does not have room for the download (checked before, or the disk filled up during it). */
+    class NotEnoughSpace(val neededBytes: Long) : IOException("not enough space: need $neededBytes bytes")
 
     /** A model file, or a .tar.bz2 archive from which only [extract] entries are kept. */
     data class Remote(
@@ -86,6 +98,20 @@ class ModelStore(context: Context) {
         val SHARED = Pack("shared", "人聲偵測、說話者、降噪", listOf(VAD, SPEAKER, DENOISER))
         val PACKS = listOf(XASR_160, XASR_480, SHARED)
         private const val TAG = "CaptionsModels"
+        private const val CONNECT_TIMEOUT_MS = 15_000
+        private const val READ_TIMEOUT_MS = 30_000
+
+        /** The disk filled up while writing (ENOSPC). */
+        fun isNoSpace(e: Throwable): Boolean {
+            var t: Throwable? = e
+            while (t != null) {
+                if (t is NotEnoughSpace) return true
+                val m = t.message.orEmpty()
+                if ("ENOSPC" in m || "No space left" in m) return true
+                t = t.cause
+            }
+            return false
+        }
     }
 
     /** A group of files downloaded and removed together. */
@@ -121,6 +147,10 @@ class ModelStore(context: Context) {
     suspend fun ensure(packs: List<Pack>, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         dir.mkdirs()
         val missing = packs.flatMap { it.files }.distinct().filter { !done(it).exists() }
+        // Room for the download and for unpacking it; what an earlier try already fetched counts.
+        val partial = missing.sumOf { r -> File(dir, r.localName + ".part").let { if (it.exists()) it.length() else 0L } }
+        val need = missing.sumOf { it.bytes } * 2 - partial
+        if (missing.isNotEmpty() && freeBytes(dir) < need) throw NotEnoughSpace(need)
         val total = missing.sumOf { it.bytes }.coerceAtLeast(1).toFloat()
         var finished = 0L
         for (r in missing) {
@@ -139,25 +169,41 @@ class ModelStore(context: Context) {
         var lastError: Exception? = null
         for (attempt in 1..3) {
             try {
-                download(r.url, tmp, onBytes)
+                // A later attempt (or a later download after a cancel) continues the partial file.
+                download(r.url, tmp, r.bytes, onBytes)
                 lastError = null
                 break
             } catch (e: Exception) {
+                // Cancelled by the user: keep the partial file so the next download resumes it.
                 coroutineContext.ensureActive()
                 Log.w(TAG, "download attempt $attempt failed", e)
+                if (isNoSpace(e)) {
+                    tmp.delete()
+                    throw NotEnoughSpace(r.bytes * 2)
+                }
                 lastError = e
             }
         }
-        lastError?.let { throw it }
+        lastError?.let {
+            tmp.delete()
+            throw it
+        }
         val digest = MessageDigest.getInstance("SHA-256")
-        val sha = DigestInputStream(tmp.inputStream().buffered(), digest).use { s ->
-            if (r.extract.isEmpty()) {
-                s.copyTo(OutputSink)
-            } else {
-                untar(s, r.extract)
-                s.copyTo(OutputSink) // hash any trailing bytes
+        val sha = try {
+            DigestInputStream(tmp.inputStream().buffered(), digest).use { s ->
+                if (r.extract.isEmpty()) {
+                    s.copyTo(OutputSink)
+                } else {
+                    untar(s, r.extract)
+                    s.copyTo(OutputSink) // hash any trailing bytes
+                }
+                digest.digest().joinToString("") { "%02x".format(it) }
             }
-            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: IOException) {
+            r.extract.values.forEach { File(dir, it).delete() }
+            tmp.delete()
+            if (isNoSpace(e)) throw NotEnoughSpace(r.bytes * 2)
+            throw e
         }
         if (sha != r.sha256) {
             tmp.delete()
@@ -173,29 +219,71 @@ class ModelStore(context: Context) {
         }
     }
 
-    private suspend fun download(url: String, to: File, onBytes: (Long) -> Unit) {
-        var conn = URL(url).openConnection() as HttpURLConnection
-        // GitHub release links redirect to another host; follow them by hand to be safe.
-        var hops = 0
-        while (conn.responseCode in 300..399 && hops++ < 5) {
-            val next = conn.getHeaderField("Location")
-            conn.disconnect()
-            conn = URL(URL(url), next).openConnection() as HttpURLConnection
+    /**
+     * Downloads [url] into [to]. When [to] already holds the start of the file, asks only for the
+     * rest (HTTP Range) and appends. Connect / read time out after 15 / 30 s; cancelling the
+     * coroutine closes the connection at once instead of waiting for the read to time out.
+     */
+    internal suspend fun download(url: String, to: File, expectedBytes: Long, onBytes: (Long) -> Unit): Unit = coroutineScope {
+        var have = if (to.exists()) to.length() else 0L
+        if (expectedBytes in 1..have) {
+            if (have == expectedBytes) return@coroutineScope // complete already; the checksum decides
+            to.delete()
+            have = 0
         }
-        check(conn.responseCode == 200) { "HTTP ${conn.responseCode} for $url" }
-        conn.inputStream.use { input ->
-            to.outputStream().buffered().use { out ->
-                val buf = ByteArray(1 shl 16)
-                var total = 0L
-                while (true) {
-                    coroutineContext.ensureActive()
-                    val n = input.read(buf)
-                    if (n < 0) break
-                    out.write(buf, 0, n)
-                    total += n
+        val active = java.util.concurrent.atomic.AtomicReference<HttpURLConnection?>()
+        val watcher = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                active.get()?.disconnect()
+            }
+        }
+        fun open(u: URL): HttpURLConnection = (u.openConnection() as HttpURLConnection).apply {
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = false
+            if (have > 0) setRequestProperty("Range", "bytes=$have-")
+            active.set(this)
+        }
+        try {
+            var conn = open(URL(url))
+            // GitHub release links redirect to another host; follow them by hand (keeping the Range header).
+            var hops = 0
+            while (conn.responseCode in 300..399 && hops++ < 5) {
+                val next = conn.getHeaderField("Location")
+                conn.disconnect()
+                conn = open(URL(URL(url), next))
+            }
+            val code = conn.responseCode
+            val append = when {
+                code == 206 && have > 0 && conn.getHeaderField("Content-Range").orEmpty().startsWith("bytes $have-") -> true
+                code == 200 -> false
+                code == 416 -> {
+                    // The partial file does not fit the server's copy: start over on the next attempt.
+                    to.delete()
+                    error("HTTP 416 for $url")
+                }
+                else -> error("HTTP $code for $url")
+            }
+            conn.inputStream.use { input ->
+                java.io.FileOutputStream(to, append).buffered().use { out ->
+                    val buf = ByteArray(1 shl 16)
+                    var total = if (append) have else 0L
                     onBytes(total)
+                    while (true) {
+                        ensureActive()
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        total += n
+                        onBytes(total)
+                    }
                 }
             }
+        } finally {
+            active.get()?.disconnect()
+            watcher.cancel()
         }
     }
 

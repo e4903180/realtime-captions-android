@@ -55,15 +55,22 @@ class AzureSpeechEngine(
         /** Checks a key without sending audio: asks Azure for an access token. */
         fun testKey(key: String, region: String): Result<Unit> = runCatching {
             val conn = URL("https://$region.api.cognitive.microsoft.com/sts/v1.0/issueToken").openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Ocp-Apim-Subscription-Key", key)
-            conn.setRequestProperty("Content-Length", "0")
-            conn.doOutput = true
-            conn.outputStream.close()
-            when (val code = conn.responseCode) {
-                200 -> Unit
-                401, 403 -> error("金鑰錯誤，或金鑰不屬於這個區域")
-                else -> error("Azure 回應 $code")
+            try {
+                // Without these a bad network leaves 「測試中」 spinning for minutes.
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 30_000
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Ocp-Apim-Subscription-Key", key)
+                conn.setRequestProperty("Content-Length", "0")
+                conn.doOutput = true
+                conn.outputStream.close()
+                when (val code = conn.responseCode) {
+                    200 -> Unit
+                    401, 403 -> error("金鑰錯誤，或金鑰不屬於這個區域")
+                    else -> error("Azure 回應 $code")
+                }
+            } finally {
+                conn.disconnect()
             }
         }
     }
