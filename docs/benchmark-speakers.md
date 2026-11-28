@@ -1,5 +1,26 @@
 # 說話者字母：即時分群 vs 事後重新分組
 
+**目前做法（ADR-039）：** 人數「自動」＝只用即時分群；選了人數才重新分組（0.55，人數為上限）。下面最新的表格是這個做法的量測，再往下是之前的紀錄。
+
+## ADR-039 規則（TTS 對話，App 設定）
+
+| Setup | Dataset | Files | Speaker accuracy | Speakers found / true (avg) | Letter changes on shown lines (per file) |
+|---|---|---|---|---|---|
+| 自動 = live only (new) | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
+| 自動 = live only (new) | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+| 自動, short lines keep the last letter | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
+| 自動, short lines keep the last letter | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+| 自動, loudness filter 8 dB | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
+| 自動, loudness filter 8 dB | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+| 自動, both (before ADR-036) | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
+| 自動, both (before ADR-036) | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+| Number of people given (new, 0.55) | en | 10 | 93.4% | 2.4 / 2.5 | 0.0 |
+| Number of people given (new, 0.55) | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+| Old: regroup 0.60 on 自動 (main before ADR-039) | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
+| Old: regroup 0.60 on 自動 (main before ADR-039) | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
+
+真實錄音請看下方「修改後」表格：其中「只即時分群」就是新的「自動」，「0.55＋給定人數」就是新的指定人數。cvtw 85.1%／96.3%，aishell 98.8%／98.8%，字母變更都是 0。alimeeting 的分離實驗見下方（補測中）。
+
 產生方式：`:desktop --speaker-recluster`（2026-11-28）。離線引擎 X-ASR 160 ms＋CAM++，句尾靜音 0.6 秒，4 執行緒，100 ms 音訊區塊。
 
 - **Live only：** 只用即時分群（不重新分組）。

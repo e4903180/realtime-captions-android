@@ -244,6 +244,8 @@ fun runFile(
      * the live clustering. Threshold, and fixed speaker count (0 = auto).
      */
     appRegroup: Pair<Float, Int>? = null,
+    /** Speaker letters through [tw.captions.core.SpeakerPolicy] with this number of people (ADR-039). */
+    policySpeakers: Int? = null,
 ): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
     val clusterer = SpeakerClusterer(stack.setup.speakerThreshold)
@@ -295,6 +297,7 @@ fun runFile(
                             secondPassStats?.let { it.kept++ }
                         }
                     }
+                    if (policySpeakers != null) tw.captions.core.SpeakerPolicy.afterFinal(assembler, clusterer, policySpeakers)
                     if (appRegroup != null) {
                         assembler.recluster(appRegroup.first, appRegroup.second)
                         clusterer.replaceProfiles(assembler.speakerProfiles())
@@ -352,7 +355,7 @@ fun runFile(
     wall += (System.nanoTime() - t0) / 1e9
     handle(tail, audio.size / 16000.0, wall)
 
-    if (recluster != null || appRegroup != null) {
+    if (recluster != null || appRegroup != null || policySpeakers != null) {
         val lines = (if (recluster != null) assembler.recluster(recluster.first, recluster.second) else assembler.state).lines
         for (k in utterances.indices) utterances[k] = utterances[k].copy(speaker = lines[lineOf[k]].speaker?.index)
     }

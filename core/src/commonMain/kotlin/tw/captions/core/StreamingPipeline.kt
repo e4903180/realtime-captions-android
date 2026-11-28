@@ -95,6 +95,11 @@ data class PipelineConfig(
      * tables). False keeps such voices as ordinary speakers with A/B labels.
      */
     val unknownIsBackground: Boolean = true,
+    /**
+     * Lines too short for a voice profile take the previous speaker's letter (the behaviour before
+     * ADR-036) instead of none. Off by default; kept for measuring (docs/benchmark-speakers.md).
+     */
+    val shortLinesKeepLastSpeaker: Boolean = false,
 )
 
 /**
@@ -261,7 +266,7 @@ class StreamingPipeline(
                 // Too short for a voice profile: say nothing rather than guess. A short reply ("好")
                 // is usually the other person, and the previous speaker's letter would also join it
                 // onto their line.
-                else -> null
+                else -> if (config.shortLinesKeepLastSpeaker) provisional ?: lastSpeaker else null
             }
             if (speaker != null) lastSpeaker = speaker
             finishedAudio = utteranceAudio?.takeIf { it.size > 0 }?.toArray()
