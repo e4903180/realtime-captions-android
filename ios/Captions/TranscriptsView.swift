@@ -82,6 +82,7 @@ struct TranscriptDetailView: View {
     @State private var confirmDelete = false
     @State private var renamingSpeaker: String?
     @State private var speakerName = ""
+    @State private var sharing: SharedFile?
 
     var body: some View {
         if let t = store.all.first(where: { $0.id == id }) {
@@ -115,8 +116,9 @@ struct TranscriptDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        ShareLink(item: store.exportFile(t, srt: false)) { Label("下載文字檔（.txt）", systemImage: "doc.text") }
-                        ShareLink(item: store.exportFile(t, srt: true)) { Label("下載字幕檔（.srt）", systemImage: "captions.bubble") }
+                        // The file is written when tapped, not on every redraw.
+                        Button { sharing = SharedFile(url: store.exportFile(t, srt: false)) } label: { Label("下載文字檔（.txt）", systemImage: "doc.text") }
+                        Button { sharing = SharedFile(url: store.exportFile(t, srt: true)) } label: { Label("下載字幕檔（.srt）", systemImage: "captions.bubble") }
                         Button { UIPasteboard.general.string = t.plainText } label: { Label("複製全文", systemImage: "doc.on.doc") }
                         Button { newTitle = t.title ?? ""; renaming = true } label: { Label("改標題", systemImage: "pencil") }
                         Button(role: .destructive) { confirmDelete = true } label: { Label("刪除", systemImage: "trash") }
@@ -138,6 +140,7 @@ struct TranscriptDetailView: View {
             .confirmationDialog("刪除這份逐字稿？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("刪除", role: .destructive) { store.delete(id); dismiss() }
             }
+            .sheet(item: $sharing) { ShareSheet(items: [$0.url]) }
         } else {
             Text("這份逐字稿已刪除").foregroundColor(.secondary)
         }
@@ -153,4 +156,21 @@ struct TranscriptDetailView: View {
         f.dateFormat = "HH:mm:ss"
         return f.string(from: d)
     }
+}
+
+/// An exported file waiting for the share sheet.
+private struct SharedFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+/// The system share sheet (save to Files, AirDrop, mail…).
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

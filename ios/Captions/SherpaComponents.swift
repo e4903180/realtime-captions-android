@@ -7,7 +7,7 @@ enum Sherpa {
     static let sampleRate = 16_000
 }
 
-/// Streaming X-ASR zipformer (zh + en, punctuation, 160 ms chunks).
+/// Streaming X-ASR zipformer (zh + en, punctuation; the 160 ms model, fed 20 ms of audio at a time).
 final class SherpaAsr: NSObject, StreamingAsr {
     private let recognizer: SherpaOnnxRecognizer
 
@@ -20,7 +20,8 @@ final class SherpaAsr: NSObject, StreamingAsr {
         let modelConfig = sherpaOnnxOnlineModelConfig(
             tokens: models.asrTokens.path,
             transducer: transducer,
-            numThreads: 2
+            // 4 threads, like Android (ADR-021): phones are slower than the benchmark PC, so compute matters more.
+            numThreads: 4
         )
         var config = sherpaOnnxOnlineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: Sherpa.sampleRate, featureDim: 80),

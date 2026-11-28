@@ -91,7 +91,9 @@ final class ModelStore: ObservableObject {
                 Task { @MainActor in self?.progress = Double(base + got) / Double(Self.totalBytes) }
             }
             defer { try? FileManager.default.removeItem(at: tmp) }
-            guard try Self.sha256(of: tmp) == remote.sha256 else { throw ModelError.checksum(remote.url.lastPathComponent) }
+            // Hashing 130 MB takes a while: off the main actor, so the screen stays responsive.
+            let hash = try await Task.detached(priority: .userInitiated) { try Self.sha256(of: tmp) }.value
+            guard hash == remote.sha256 else { throw ModelError.checksum(remote.url.lastPathComponent) }
             if remote.extract.isEmpty {
                 let dest = files.directory.appendingPathComponent(remote.localName)
                 try? FileManager.default.removeItem(at: dest)
@@ -155,16 +157,27 @@ enum ModelError: LocalizedError {
     }
 }
 
-/// URLSession download with byte progress.
+/// URLSession download with byte progress. Waits for a connection instead of failing at once,
+/// and after a dropped connection continues once from where it stopped.
 private final class Downloader: NSObject, URLSessionDownloadDelegate {
+    private let url: URL
     private let onProgress: (Int64) -> Void
     private var continuation: CheckedContinuation<URL, Error>?
+    private var retried = false
 
-    private init(onProgress: @escaping (Int64) -> Void) { self.onProgress = onProgress }
+    private init(url: URL, onProgress: @escaping (Int64) -> Void) {
+        self.url = url
+        self.onProgress = onProgress
+    }
 
     static func download(_ url: URL, onProgress: @escaping (Int64) -> Void) async throws -> URL {
-        let d = Downloader(onProgress: onProgress)
-        let session = URLSession(configuration: .default, delegate: d, delegateQueue: nil)
+        let d = Downloader(url: url, onProgress: onProgress)
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        // No data for this long counts as stalled; the whole file may take much longer on a slow line.
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 60 * 60
+        let session = URLSession(configuration: config, delegate: d, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withCheckedThrowingContinuation { c in
             d.continuation = c
@@ -192,6 +205,19 @@ private final class Downloader: NSObject, URLSessionDownloadDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error { continuation?.resume(throwing: error); continuation = nil }
+        guard let error, continuation != nil else { return }
+        let urlError = error as? URLError
+        if !retried, urlError?.code != .cancelled {
+            // One more try, from where it stopped when the server allows it.
+            retried = true
+            if let resume = urlError?.downloadTaskResumeData {
+                session.downloadTask(withResumeData: resume).resume()
+            } else {
+                session.downloadTask(with: url).resume()
+            }
+            return
+        }
+        continuation?.resume(throwing: error)
+        continuation = nil
     }
 }

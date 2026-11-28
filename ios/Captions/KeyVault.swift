@@ -19,7 +19,30 @@ enum KeyVault {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: Data(value.utf8),
         ]
-        return SecItemAdd(item as CFDictionary, nil)
+        let status = SecItemAdd(item as CFDictionary, nil)
+        setPresence(name, status == errSecSuccess)
+        return status
+    }
+
+    /// Whether a key is stored, without a Keychain read after the first check (the app is the
+    /// only writer, and `put` / `remove` keep this up to date).
+    static func has(_ name: String) -> Bool {
+        lock.lock()
+        let known = presence[name]
+        lock.unlock()
+        if let known { return known }
+        let found = get(name) != nil
+        setPresence(name, found)
+        return found
+    }
+
+    private static let lock = NSLock()
+    private static var presence: [String: Bool] = [:]
+
+    private static func setPresence(_ name: String, _ value: Bool) {
+        lock.lock()
+        presence[name] = value
+        lock.unlock()
     }
 
     static func get(_ name: String) -> String? {
@@ -42,6 +65,7 @@ enum KeyVault {
             kSecAttrAccount as String: name,
         ]
         SecItemDelete(query as CFDictionary)
+        setPresence(name, false)
     }
 
     /// "••••1a2b" for display; nil when nothing is stored.

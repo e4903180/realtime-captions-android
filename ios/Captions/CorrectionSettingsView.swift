@@ -16,8 +16,11 @@ struct CorrectionSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("整句重聽（離線）", isOn: $secondPass)
-                    .onChange(of: secondPass) { SecondPassModel.isEnabled = $0 }
+                // No switch until the model can actually be downloaded.
+                if SecondPassModel.available {
+                    Toggle("整句重聽（離線）", isOn: $secondPass)
+                        .onChange(of: secondPass) { SecondPassModel.isEnabled = $0 }
+                }
                 Text("一句說完後，用比較準的整句模型（\(SecondPassModel.name)）把那段聲音再聽一次，換掉錯字。不用網路，字幕照樣即時出現，修正約晚 1 秒。只用在「離線＋說話者」。")
                     .font(.callout).foregroundColor(.secondary)
                 if !SecondPassModel.available {
