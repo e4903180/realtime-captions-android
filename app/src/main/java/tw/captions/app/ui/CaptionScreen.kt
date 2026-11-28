@@ -457,7 +457,7 @@ private fun NameDialog(ui: UiState, onDismiss: () -> Unit, onName: (String) -> U
                         ui.people.forEach { (_, name) -> androidx.compose.material3.AssistChip(onClick = { onName(name) }, label = { Text(name) }) }
                     }
                 }
-                androidx.compose.material3.OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("名字，例如 媽媽") })
+                androidx.compose.material3.OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("名字，例如 小明") })
             }
         },
         confirmButton = { TextButton(onClick = { onName(text) }, enabled = text.isNotBlank()) { Text("記住") } },
