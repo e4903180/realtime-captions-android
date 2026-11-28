@@ -182,10 +182,14 @@ class ModelStore(
                     throw NotEnoughSpace(r.bytes * 2)
                 }
                 lastError = e
+                // A dropped connection often comes back within seconds: wait before trying again
+                // (the three attempts used to fail in the same millisecond).
+                if (attempt < 3) kotlinx.coroutines.delay(if (attempt == 1) 2_000L else 5_000L)
             }
         }
         lastError?.let {
-            tmp.delete()
+            // Keep the partial file: the next download resumes it with a Range request (or starts
+            // over if the server's copy changed, HTTP 416).
             throw it
         }
         val digest = MessageDigest.getInstance("SHA-256")
