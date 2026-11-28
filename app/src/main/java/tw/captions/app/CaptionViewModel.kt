@@ -106,7 +106,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         /** Same as iPhone (ADR-027). */
-        const val RECLUSTER_THRESHOLD = 0.45f
+        const val RECLUSTER_THRESHOLD = tw.captions.core.SpeakerRecluster.DEFAULT_THRESHOLD
 
         /** Azure accepts a few hundred phrases; more also stops helping. */
         const val MAX_VOCABULARY = 200

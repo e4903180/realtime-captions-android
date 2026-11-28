@@ -101,7 +101,7 @@ object SpeakerRecluster {
     }
 
     /** Similarity two groups need to count as one person (average linkage); see docs/benchmark-speakers.md. */
-    const val DEFAULT_THRESHOLD = 0.45f
+    const val DEFAULT_THRESHOLD = 0.60f
 
     private fun groupOf(groups: List<List<Int>>, k: Int): Int = groups.indexOfFirst { k in it }
 
