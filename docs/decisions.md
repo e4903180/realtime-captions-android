@@ -322,3 +322,11 @@
 - **API 變化：** `SpeakerRecluster.relabel` 新增 `live`、`frozen` 參數（有預設值）；`CaptionAssembler.recluster` 新增 `openLines`（預設 4），門檻預設改為 `DEFAULT_THRESHOLD`；Swift 呼叫端不受影響。iPhone 的 `reclusterThreshold` 還是 0.45，要另外改。
 - **驗證：** 模擬器 Pixel 8 家庭晚餐：A B C A B C，字母 0 次變更；不清除再跑一次，新的一輪同樣正確、舊句子不動。數字見 docs/benchmark-speakers.md。
 
+
+## ADR-037 給家人用的 Android 正式版：自己簽章的 APK
+
+- **日期：** 2026-11-28
+- **背景：** tony 要讓家人使用 Android 版。Google Play 需要開發者帳號（US$25）和審核，先求今天能用。
+- **決定：** 用一把正式簽章金鑰（RSA 4096，效期約 33 年，PKCS12）編正式版 APK，tony 用 LINE 或雲端硬碟傳給家人安裝。金鑰和隨機密碼放在 `datasets/release/`（git 忽略），Gradle 從 `CAPTIONS_KEYSTORE_PROPERTIES` 環境變數或 `local.properties` 的 `captions.keystore.properties` 讀取；沒有這個檔案時正式版不簽章，CI 不受影響。versionCode 預設是 git commit 數（也可用 `-PversionCode`），保證新版可以覆蓋安裝。正式版只放 arm64 的原生函式庫（`-PwithX86=true` 才加 x86_64，給模擬器測試）。先不開 R8，避免 sherpa-onnx（JNI）、Azure、Anthropic SDK 被裁掉。偵錯用的音檔輸入和金鑰匯入只在 debug 版有效。
+- **其他選項：** Google Play 內部測試（會自動更新，之後再做）；debug 版 APK（每台電腦的簽章不同，無法互相覆蓋更新）。
+- **後果：** 金鑰遺失就不能再更新已安裝的 App（家人要先移除再裝，資料會不見），所以 tony 要另外備份 `datasets/release/`。之後上架 Play 可以用同一把金鑰。家人安裝說明見 docs/install-android.md。
