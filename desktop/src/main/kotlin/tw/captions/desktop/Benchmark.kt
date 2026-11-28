@@ -10,9 +10,11 @@ import java.time.LocalDate
 import java.util.Locale
 
 /**
- * Streams every test wav through the sherpa-onnx pipeline in 100 ms chunks and scores it.
+ * Streams every test wav through the sherpa-onnx pipeline and scores it. By default with the
+ * shipped Android app's settings (20 ms chunks, 4 threads, line end 0.6 s, line joining 1.5 s;
+ * see [BenchDefaults]); `--legacy-config` gives the older reports' settings.
  *
- * Timing follows a real-time clock: chunk k becomes available at (k+1)·100 ms of audio time, and
+ * Timing follows a real-time clock: chunk k becomes available at (k+1)·chunk of audio time, and
  * the engine can only start on it once it has finished the previous chunk. So an event's wall time
  * is max(previous finish, chunk arrival) + processing time, exactly what a listener would see with
  * a live microphone. Pass --realtime to also sleep for real.
@@ -20,9 +22,12 @@ import java.util.Locale
  * Usage: gradlew :desktop:run --args="--models C:/code/sherpa-cache [--quick] [--realtime]"
  *        gradlew :desktop:run --args="--models C:/code/sherpa-cache --real datasets/prepared"
  * The second form scores real recordings (see testdata/real) and writes docs/benchmark-real.md.
+ * Config flags (any mode): --legacy-config, --vad-end <s>, --merge-gap <s, 0 = off>, --chunk-ms <ms>, --threads <n>.
  */
 fun main(args: Array<String>) {
     val opts = args.toList()
+    BenchDefaults.applyArgs(opts)
+    System.err.println("config: ${EngineSetup(File(".")).configSummary}")
     fun opt(name: String) = opts.indexOf(name).takeIf { it >= 0 }?.let { opts[it + 1] }
     val modelsDir = File(opt("--models") ?: System.getenv("SHERPA_MODELS") ?: error("pass --models <dir>"))
     opt("--clips")?.let { dir ->
@@ -61,11 +66,13 @@ fun main(args: Array<String>) {
         pool.shutdown()
         val o = File(opt("--out") ?: "build/hotwords.md")
         o.writeText(buildString {
-            appendLine("| Decoding | Dataset | CER | CER (no fillers) | RTF |")
-            appendLine("|---|---|---|---|---|")
+            appendLine(configLine(base) + " Rows change only the decoding.")
+            appendLine()
+            appendLine("| Decoding | Dataset | CER | CER (numbers) | CER (no fillers) | RTF |")
+            appendLine("|---|---|---|---|---|---|")
             for ((s, rs) in results) for ((ds, g) in rs.groupBy { datasetOf(it.truth) }) {
                 val name = when { s.hotwords != null -> "beam search + Taiwan hotwords (${list.readLines().count { it.isNotBlank() }} words)"; s.beamSearch -> "beam search"; else -> "greedy (default)" }
-                appendLine("| $name | ${DATASETS[ds] ?: ds} | ${pct(errRate(g))} | ${pct(errRateNoFiller(g))} | ${f2(g.sumOf { it.rtf * it.truth.duration } / g.sumOf { it.truth.duration })} |")
+                appendLine("| $name | ${DATASETS[ds] ?: ds} | ${pct(errRate(g))} | ${pct(errRateNumbers(g))} | ${pct(errRateNoFiller(g))} | ${f2(g.sumOf { it.rtf * it.truth.duration } / g.sumOf { it.truth.duration })} |")
             }
         })
         System.err.println("wrote $o")
@@ -103,12 +110,14 @@ fun main(args: Array<String>) {
             // Speaker-splitting trade-off: short read sentences (Common Voice) vs real meetings.
             val files = truths.filter { it.id.startsWith("cvtw_") || it.id.startsWith("alimeeting_") }
             val results = listOf(0.6f, 1.0f, 1.5f).map { v ->
-                val setup = base.copy(pipeline = PipelineConfig(minNewSpeakerSec = v))
+                val setup = base.copy(pipeline = base.pipeline.copy(minNewSpeakerSec = v))
                 System.err.println("== minNewSpeakerSec $v")
                 SherpaStack(setup).use { stack -> setup to files.map { runFile(stack, it, testdata, realTime) } }
             }
             out.parentFile.mkdirs()
             out.writeText(buildString {
+                appendLine(configLine(base) + " Rows change only the new-speaker length.")
+                appendLine()
                 appendLine("| Lines that may start a new speaker | Dataset | Speaker accuracy | Speakers found / true |")
                 appendLine("|---|---|---|---|")
                 for ((setup, rs) in results) for ((ds, g) in rs.groupBy { datasetOf(it.truth) }) {
@@ -142,8 +151,8 @@ fun main(args: Array<String>) {
         runs += base.copy(asrModel = AsrModel.XASR_480) to truths
         runs += base.copy(asrModel = AsrModel.BILINGUAL_2023) to truths
         runs += base.copy(useVad = false) to clean
-        runs += base.copy(pipeline = PipelineConfig(vadEndpointSilenceSec = null)) to clean
-        runs += base.copy(pipeline = PipelineConfig(vadEndpointSilenceSec = 0.3f)) to truths
+        runs += base.copy(pipeline = base.pipeline.copy(vadEndpointSilenceSec = null)) to clean
+        runs += base.copy(pipeline = base.pipeline.copy(vadEndpointSilenceSec = 0.3f)) to truths
         runs += base.copy(vadThreshold = 0.5f) to truths
         runs += base.copy(speakerModel = SpeakerModel.ERES2NET_BASE) to truths
         for (t in listOf(0.35f, 0.45f, 0.55f, 0.65f)) runs += base.copy(speakerThreshold = t) to truths
@@ -195,6 +204,9 @@ data class FileResult(
     /** Errors and reference size after dropping filler sounds (嗯, 啊, 呃 ...) from both sides. */
     val errorsNoFiller: Int,
     val refNoFiller: Int,
+    /** Errors and reference size with numbers written one way (一百二十 = 120; [NumberForm.ARABIC]). */
+    val errorsNumbers: Int,
+    val refNumbers: Int,
     val firstPartialLatency: List<Double>,
     val finalLatency: List<Double>,
     val speakerAcc: Double,
@@ -207,8 +219,8 @@ fun runFile(
     truth: Truth,
     testdata: File,
     realTime: Boolean,
-    /** Audio chunk handed to the engine at a time (1600 = 100 ms). */
-    chunk: Int = 1600,
+    /** Audio chunk handed to the engine at a time (320 = 20 ms, 1600 = 100 ms). */
+    chunk: Int = stack.setup.chunkSamples,
     /** Pretend compute is free (latency then shows model + buffering only). */
     noCompute: Boolean = false,
     registry: tw.captions.core.VoiceRegistry? = null,
@@ -220,16 +232,30 @@ fun runFile(
 ): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
     val pipeline = stack.newPipeline(registry)
-    val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan), backgroundMode = if (stack.setup.hideBackground) tw.captions.core.BackgroundMode.HIDE else tw.captions.core.BackgroundMode.OFF)
+    // Line joining (mergeGapSec) runs on the simulated listener clock, like the app's caption screen.
+    // maxLines unbounded: long meetings have more than the screen's 200 lines, and all are scored.
+    var clock = 0.0
+    val assembler = CaptionAssembler(
+        TextProcessor.default(converter = OpenCcTaiwan),
+        maxLines = Int.MAX_VALUE,
+        backgroundMode = if (stack.setup.hideBackground) tw.captions.core.BackgroundMode.HIDE else tw.captions.core.BackgroundMode.OFF,
+        mergeGapSec = stack.setup.mergeGapSec,
+        clockSec = { clock },
+    )
     var wall = 0.0
     var busy = 0.0
     val utterances = mutableListOf<Utterance>()
+    /** Caption line each utterance ended up on (several when the screen joins them). */
+    val lineOf = mutableListOf<Int>()
     var uStartAudio = -1.0
     var uFirstPartial = -1.0
     val startNs = System.nanoTime()
 
     fun handle(events: List<TranscriptEvent>, audioTime: Double, at: Double) {
+        clock = at
         for (e in events) {
+            val linesBefore = assembler.state.lines.size
+            val lastBefore = assembler.state.lines.lastOrNull()?.text
             assembler.onEvent(e)
             when (e) {
                 is TranscriptEvent.Partial -> if (uStartAudio < 0) {
@@ -251,12 +277,23 @@ fun runFile(
                             secondPassStats?.let { it.kept++ }
                         }
                     }
-                    val line = assembler.state.lines.lastOrNull()?.text ?: e.text
-                    utterances += Utterance(
-                        line, e.speaker?.index,
-                        if (uStartAudio < 0) audioTime else uStartAudio, audioTime,
-                        if (uFirstPartial < 0) at else uFirstPartial, at,
-                    )
+                    val lines = assembler.state.lines
+                    // This utterance's own text: a new line, or the part joined onto the last line.
+                    // Empty results show nothing on screen and are not counted as lines.
+                    val text = when {
+                        lines.size > linesBefore -> lines.last().text
+                        lastBefore != null && lines.isNotEmpty() && lines.last().text != lastBefore ->
+                            lines.last().text.let { t -> if (t.startsWith(lastBefore)) t.removePrefix(lastBefore).trimStart('，', ' ') else t }
+                        else -> null
+                    }
+                    if (text != null) {
+                        utterances += Utterance(
+                            text, e.speaker?.index,
+                            if (uStartAudio < 0) audioTime else uStartAudio, audioTime,
+                            if (uFirstPartial < 0) at else uFirstPartial, at,
+                        )
+                        lineOf += lines.lastIndex
+                    }
                     uStartAudio = -1.0
                     uFirstPartial = -1.0
                 }
@@ -289,11 +326,7 @@ fun runFile(
 
     if (recluster != null) {
         val lines = assembler.recluster(recluster.first, recluster.second).lines
-        if (lines.size == utterances.size) {
-            for (k in utterances.indices) utterances[k] = utterances[k].copy(speaker = lines[k].speaker?.index)
-        } else {
-            System.err.println("recluster: ${lines.size} lines vs ${utterances.size} utterances in ${truth.id}, left as is")
-        }
+        for (k in utterances.indices) utterances[k] = utterances[k].copy(speaker = lines[lineOf[k]].speaker?.index)
     }
     // References may be Simplified (AISHELL, AliMeeting); score both sides in Taiwan Traditional.
     val ref = truth.segments.flatMap { scoringTokens(OpenCcTaiwan.toTraditional(it.text)) }
@@ -301,6 +334,8 @@ fun runFile(
     val hyp = scoringTokens(hypText)
     val refNf = ref.filter { it !in FILLERS }
     val hypNf = hyp.filter { it !in FILLERS }
+    val refNum = truth.segments.flatMap { scoringTokens(OpenCcTaiwan.toTraditional(it.text), NumberForm.ARABIC) }
+    val hypNum = scoringTokens(hypText, NumberForm.ARABIC)
 
     // Latency per truth segment, using the utterances that best match it.
     val bySeg = utterances.groupBy { matchSegment(it, truth.segments) }
@@ -313,7 +348,8 @@ fun runFile(
         fin += us.maxOf { it.finalAt } - s.end
     }
     return FileResult(
-        truth, utterances, hypText, editDistance(ref, hyp), ref.size, editDistance(refNf, hypNf), refNf.size, ttfp, fin,
+        truth, utterances, hypText, editDistance(ref, hyp), ref.size, editDistance(refNf, hypNf), refNf.size,
+        editDistance(refNum, hypNum), refNum.size, ttfp, fin,
         if (truth.segments.any { it.speaker == "?" }) Double.NaN else speakerAccuracy(utterances, truth.segments),
         utterances.mapNotNull { it.speaker }.distinct().size,
         busy / (audio.size / 16000.0),
@@ -345,6 +381,8 @@ private fun errRate(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN else rs
 
 private fun errRateNoFiller(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN else rs.sumOf { it.errorsNoFiller }.toDouble() / rs.sumOf { it.refNoFiller }.coerceAtLeast(1)
 
+private fun errRateNumbers(rs: List<FileResult>) = if (rs.isEmpty()) Double.NaN else rs.sumOf { it.errorsNumbers }.toDouble() / rs.sumOf { it.refNumbers }.coerceAtLeast(1)
+
 private fun speakerAcc(rs: List<FileResult>): Double {
     val w = rs.filter { !it.speakerAcc.isNaN() }
     if (w.isEmpty()) return Double.NaN
@@ -357,6 +395,8 @@ fun report(results: List<Pair<EngineSetup, List<FileResult>>>, extra: Map<AsrMod
     val conditions = listOf("clean", "babble 10 dB", "cafe 10 dB", "babble 5 dB", "cafe 5 dB")
     appendLine("# Offline engine benchmark (sherpa-onnx)")
     appendLine()
+    appendLine(configLine(results.first().first) + " Other rows change only what their label says.")
+    appendLine()
     appendLine("Generated by `:desktop` on ${LocalDate.now()} (${System.getProperty("os.name")}, ${Runtime.getRuntime().availableProcessors()} logical CPUs, " +
         "${if (realTime) "real-time playback" else "simulated real-time clock"}). Regenerate with:")
     appendLine()
@@ -367,25 +407,25 @@ fun report(results: List<Pair<EngineSetup, List<FileResult>>>, extra: Map<AsrMod
     appendLine()
     appendLine("Test set: ${results.first().second.map { it.truth.dialog }.distinct().size} synthetic dialogs spoken by Windows TTS voices " +
         "(zh-TW: Yating, Hanhan, Zhiwei; en: Zira, David, Mark), 2–3 speakers each, 0.6–1.1 s pauses between turns, " +
-        "each in clean, babble and café noise at 10 and 5 dB SNR. Audio is streamed in 100 ms chunks.")
+        "each in clean, babble and café noise at 10 and 5 dB SNR. Audio is streamed in ${results.first().first.chunkSamples * 1000 / 16000} ms chunks.")
     appendLine()
     appendLine("**Metrics.** *Error rate*: character error rate for Chinese (after Traditional conversion), word error rate for English, " +
-        "mixed for code-switching; punctuation ignored. *First partial*: time from when a speaker starts until the first caption text appears. " +
+        "mixed for code-switching; punctuation ignored. *(numbers)*: the same after writing numbers one way on both sides (一百二十 = 120). *First partial*: time from when a speaker starts until the first caption text appears. " +
         "*Final*: time from when they stop until the caption line is finished (and gets its final speaker tag). " +
         "*Speaker*: share of caption characters with the right speaker tag (best one-to-one mapping of anonymous labels). " +
         "*RTF*: compute time / audio time for the whole pipeline (ASR + VAD + speaker embeddings) on this PC.")
     appendLine()
     appendLine("## Summary")
     appendLine()
-    appendLine("| Configuration | Files | zh error clean | zh error 10 dB | zh error 5 dB | en WER clean | en WER 10 dB | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker clean | Speaker noisy | RTF |")
-    appendLine("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    appendLine("| Configuration | Files | zh error clean | zh error clean (numbers) | zh error 10 dB | zh error 5 dB | en WER clean | en WER 10 dB | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker clean | Speaker noisy | RTF |")
+    appendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for ((setup, rs) in results) {
         fun sel(lang: String, vararg cond: String) = rs.filter { it.truth.language.startsWith(lang) && conditionOf(it.truth).let { c -> cond.any { c.endsWith(it) } } }
         val ttfp = rs.filter { it.truth.noise == "clean" }.flatMap { it.firstPartialLatency }
         val fin = rs.filter { it.truth.noise == "clean" }.flatMap { it.finalLatency }
         val noisy = rs.filter { it.truth.noise != "clean" }
         appendLine(
-            "| ${setup.label} | ${rs.size} | ${pct(errRate(sel("zh", "clean")))} | ${pct(errRate(sel("zh", "10 dB")))} | ${pct(errRate(sel("zh", "5 dB")))} | " +
+            "| ${setup.label} | ${rs.size} | ${pct(errRate(sel("zh", "clean")))} | ${pct(errRateNumbers(sel("zh", "clean")))} | ${pct(errRate(sel("zh", "10 dB")))} | ${pct(errRate(sel("zh", "5 dB")))} | " +
                 "${pct(errRate(sel("en", "clean")))} | ${pct(errRate(sel("en", "10 dB")))} | " +
                 "${f2(percentile(ttfp, 50.0))} / ${f2(percentile(ttfp, 90.0))} | ${f2(percentile(fin, 50.0))} / ${f2(percentile(fin, 90.0))} | " +
                 "${pct(speakerAcc(rs.filter { it.truth.noise == "clean" }))} | ${if (noisy.isEmpty()) "–" else pct(speakerAcc(noisy))} | " +
@@ -446,6 +486,8 @@ private val DATASETS = linkedMapOf(
 fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boolean): String = buildString {
     appendLine("# Offline engine on real speech (sherpa-onnx)")
     appendLine()
+    appendLine(configLine(results.first().first) + " Other rows change only what their label says.")
+    appendLine()
     appendLine("Generated by `:desktop` on ${LocalDate.now()} (${System.getProperty("os.name")}, ${Runtime.getRuntime().availableProcessors()} logical CPUs, " +
         "${if (realTime) "real-time playback" else "simulated real-time clock"}). Same metrics as [benchmark.md](benchmark.md). Regenerate with:")
     appendLine()
@@ -466,8 +508,10 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
     appendLine()
     appendLine("## Summary")
     appendLine()
-    appendLine("| Configuration | Dataset | Sessions | Minutes | CER | CER (no fillers) | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker accuracy | Speakers found / true (avg) | RTF |")
-    appendLine("|---|---|---|---|---|---|---|---|---|---|---|")
+    appendLine("*CER* is raw; *CER (numbers)* first writes numbers one way on both sides (一百二十 = 120, each digit one token), so 120 vs 一百二十 is not an error.")
+    appendLine()
+    appendLine("| Configuration | Dataset | Sessions | Minutes | CER | CER (numbers) | CER (no fillers) | First partial p50 / p90 (s) | Final p50 / p90 (s) | Speaker accuracy | Speakers found / true (avg) | RTF |")
+    appendLine("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for ((setup, rs) in results) {
         val groups = rs.groupBy { datasetOf(it.truth) }
         for (ds in DATASETS.keys.filter { it in groups } + groups.keys.filter { it !in DATASETS }) {
@@ -480,7 +524,7 @@ fun realReport(results: List<Pair<EngineSetup, List<FileResult>>>, realTime: Boo
             val found = group.map { it.speakers }.average()
             val truthN = group.map { r -> r.truth.segments.map { it.speaker }.filter { it != "?" }.distinct().size }.average().takeIf { it > 0 } ?: Double.NaN
             appendLine(
-                "| ${setup.label} | ${DATASETS[ds] ?: ds} | ${group.size} | ${f1(group.sumOf { it.truth.duration } / 60)} | ${pct(errRate(group))} | ${pct(errRateNoFiller(group))} | " +
+                "| ${setup.label} | ${DATASETS[ds] ?: ds} | ${group.size} | ${f1(group.sumOf { it.truth.duration } / 60)} | ${pct(errRate(group))} | ${pct(errRateNumbers(group))} | ${pct(errRateNoFiller(group))} | " +
                     "${f2(percentile(ttfp, 50.0))} / ${f2(percentile(ttfp, 90.0))} | ${f2(percentile(fin, 50.0))} / ${f2(percentile(fin, 90.0))} | " +
                     "${pct(speakerAcc(group))} | ${f1(found)} / ${f1(truthN)} | ${f2(group.sumOf { it.rtf * it.truth.duration } / group.sumOf { it.truth.duration })} |",
             )

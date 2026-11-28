@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same branch or PR cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -15,9 +21,26 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      # sherpa-onnx jars/AAR that buildSrc's DownloadFile keeps in ~/.cache/realtime-captions.
+      # The versions and SHA-256 live in buildSrc, so its sources are the cache key.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/realtime-captions
+          key: sherpa-downloads-${{ hashFiles('buildSrc/src/**', 'buildSrc/build.gradle.kts') }}
       - name: Test core and desktop, build debug APK
+        timeout-minutes: 30
         run: ./gradlew :core:test :desktop:test :app:assembleDebug
+      # Report only (abortOnError = false in app/build.gradle.kts).
+      - name: Android lint (report only)
+        timeout-minutes: 15
+        run: ./gradlew :app:lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: captions-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore

@@ -1,67 +1,69 @@
 # 即時字幕 (Real-time captions)
 
-An Android and iPhone app that turns speech into live captions, so anyone can follow a conversation by reading it.
-Mandarin (Traditional Chinese) comes first. English and Taiwanese come next.
+Android 和 iPhone 的即時字幕 App：把身邊的人說的話即時變成字幕，用看的就能跟上對話。
+以台灣口音國語為主（輸出台灣繁體與台灣用語），可以中英夾雜。
 
-## Design goals
+## 設計目標
 
-- **Speed first, quality close behind.** Words appear as they are recognized, without waiting for the end of a sentence.
-- **Easy to read.** Large, adjustable text on a black background. The current sentence is split into settled words (yellow) and words that may still change (gray), so the reader knows what is final.
-- **Online and offline.** The recognition engine can be swapped (see `SpeechEngine`).
-- **Portable.** Recognition contracts and text clean-up live in `:core`, a pure Kotlin module with no Android dependency, so they can be reused on other devices such as smart glasses.
+- **速度第一，品質緊接在後。** 字在說話當下逐字出現，不等整句講完。
+- **好讀。** 大字、可調整、高對比；深色／淺色跟隨系統。正在說的句子分成已確定（黃）和可能還會變（灰）的字。
+- **分得出誰在說話。** 說話者 A、B、C 用字母和顏色標出，可以長按命名（認聲音）。
+- **離線和雲端兩種引擎**（見 `SpeechEngine`）：
+  - 離線＋說話者：sherpa-onnx，在手機上跑，免費、不用網路。
+  - Azure 雲端：使用者自己的金鑰，比較準；失敗或超過費用上限時自動改用離線。
+- **可移植。** 辨識介面和文字處理放在 `:core`（Kotlin Multiplatform），可以用在其他裝置，例如智慧眼鏡。
 
-## Modules
+需求見 [docs/requirements.md](docs/requirements.md)，進度與下一步見 [docs/roadmap.md](docs/roadmap.md)，技術決策見 [docs/decisions.md](docs/decisions.md)。
 
-| Module | What it holds |
+## 模組
+
+| 模組 | 內容 |
 | --- | --- |
-| `core` | Kotlin Multiplatform (JVM for Android/desktop, iOS for the iPhone app). `SpeechEngine` interface, `CaptionAssembler` (partial/final results → caption state, stable/tentative split), `TextProcessor` (whitespace, full-width punctuation, correction dictionary, Simplified→Traditional hook), `StreamingPipeline` (streaming recognizer + VAD endpointing + speaker tags) and `SpeakerClusterer` (online speaker clustering) |
-| `app` | Android UI (Jetpack Compose) and engines, split into offline and cloud: `SherpaOnnxEngine` (fully offline, with speaker tags; X-ASR 160 ms default and 480 ms; each model pack can be downloaded or removed) and `AzureSpeechEngine` (the user's own Azure key, stored encrypted). The phone's built-in recognizer was removed |
-| `ios` | iPhone app (SwiftUI) using the same core and the same sherpa-onnx models; see [ios/README.md](ios/README.md) |
-| `desktop` | The same sherpa-onnx pipeline on the JVM, plus a benchmark that streams test wavs and writes [docs/benchmark.md](docs/benchmark.md) |
-| `testdata` | Synthetic multi-speaker dialogs (Windows TTS) with ground truth, and noisy variants |
+| `core` | Kotlin Multiplatform（JVM 給 Android／桌機，iOS 給 iPhone）。`SpeechEngine` 介面、`CaptionAssembler`（中間／定稿結果 → 字幕狀態、已確定／未確定、接行、重新分組）、`TextProcessor`（空白、全形標點、校正字典、簡轉繁）、`StreamingPipeline`（串流辨識＋人聲偵測斷句＋說話者標籤）、`SpeakerClusterer`（即時說話者分群） |
+| `app` | Android 畫面（Jetpack Compose）與引擎：`SherpaOnnxEngine`（離線，有說話者標籤；X-ASR 160 ms 預設、480 ms 省電；模型可下載或移除）和 `AzureSpeechEngine`（使用者自己的 Azure 金鑰，加密存放） |
+| `ios` | iPhone App（SwiftUI），用同一個核心和同一組 sherpa-onnx 模型；見 [ios/README.md](ios/README.md) |
+| `desktop` | 同一套 sherpa-onnx 流程跑在 JVM 上，以及 benchmark（寫出 [docs/benchmark.md](docs/benchmark.md) 等報告） |
+| `testdata` | 合成多人對話（Windows TTS）與標準答案、噪音版本；真實語音的下載與轉換腳本 |
+| `tools/whisper-bench` | Whisper／Breeze、Google、Azure 的對照測試（Python） |
 
-## Build
+## 建置
 
 ```bash
-./gradlew :core:test :desktop:test :app:assembleDebug
+./gradlew :core:jvmTest :desktop:test :app:assembleDebug
 ```
 
-The sherpa-onnx Android library and JVM jars come from GitHub releases; Gradle downloads them and checks their SHA-256 (cached in `~/.cache/realtime-captions`).
+sherpa-onnx 的 Android 函式庫和 JVM jar 從 GitHub releases 下載並檢查 SHA-256（快取在 `~/.cache/realtime-captions`，可用 `CAPTIONS_CACHE` 改位置）。
 
-The APK is written to `app/build/outputs/apk/debug/`. GitHub Actions also builds it on every push and attaches it to the run as `captions-debug-apk`.
+APK 在 `app/build/outputs/apk/debug/`。GitHub Actions 每次推送都會建置，附在執行結果的 `captions-debug-apk`，lint 報告附在 `lint-report`。
 
-「離線」(built-in recognizer) needs the Chinese (Taiwan) offline speech pack installed on the phone (Android 12+ works best).
-「離線＋說話者」(sherpa-onnx) needs no language pack: it downloads about 165 MB of models the first time it starts, then works without internet.
+「離線＋說話者」第一次開始時下載約 165 MB 模型，之後完全離線。
 
-## Offline engine (sherpa-onnx)
+## 離線引擎（sherpa-onnx）
 
-- Streaming zipformer transducer, zh + en with punctuation, 160 ms chunks, int8 (X-ASR); output converted to Traditional (Taiwan) with OpenCC.
-- Silero VAD ends a caption line about 0.4 s after the speaker stops, instead of waiting for the recognizer's own end-of-utterance rule.
-- 3D-Speaker CAM++ embeddings per line, clustered online into anonymous speakers A, B, C…; partial lines get a provisional tag after 1 s of speech.
-- Results on the synthetic test set: [docs/benchmark.md](docs/benchmark.md).
+- 串流 zipformer transducer，中英雙語含標點，160 ms 區塊，int8（X-ASR）；輸出用 OpenCC 轉台灣繁體用語。
+- Silero VAD 在說話停 0.6 秒後結束一行；同一個人 1.5 秒內接著說，就接在同一行（ADR-024）。
+- 每行算 3D-Speaker CAM++ 聲紋，即時分群成 A、B、C…；說完後再用全部句子重新分組（ADR-027）。
+- 每 20 毫秒送一次聲音、4 核心（ADR-021）。
 
-### Testing without a microphone (debug builds)
+### 不用麥克風測試（debug 版）
 
 ```bash
 adb push testdata/wavs/zh_family_dinner.wav /sdcard/Android/data/tw.captions.app/files/
 adb shell am start -n tw.captions.app/.MainActivity --es engine sherpa-onnx --es debug_wav zh_family_dinner.wav --ez autostart true
-adb logcat -s CaptionsSherpa   # one line per finished caption, with its speaker tag
+adb logcat -s CaptionsSherpa   # 每句定稿一行，含說話者標籤
 ```
 
-The wav (16 kHz mono 16-bit) is played in real time instead of the microphone. Pass `--es debug_wav ""` to go back to the microphone.
+wav（16 kHz 單聲道 16-bit）會照實際時間播放，取代麥克風。傳 `--es debug_wav ""` 改回麥克風。
 
 ### Benchmark
 
 ```bash
-pwsh -File testdata/generate.ps1                       # Windows: TTS dialogs + noise
-./gradlew :desktop:run --args="--models <model dir>"   # writes docs/benchmark.md
+pwsh -File testdata/generate.ps1                       # Windows：TTS 對話＋噪音
+./gradlew :desktop:run --args="--models <模型資料夾>"    # 寫出 docs/benchmark.md
 ```
 
-The model directory holds the unpacked sherpa-onnx model archives (see `AsrModel` / `SpeakerModel` in `desktop`).
+預設用 Android App 出貨的設定（停頓 0.6 秒、接行 1.5 秒、20 毫秒、4 核心），報告開頭會寫出設定。
+`--legacy-config` 改回 2026-11-28 以前報告用的設定（0.4 秒、不接行、100 毫秒、2 核心）；也可以用 `--vad-end`、`--merge-gap`（0 = 不接行）、`--chunk-ms`、`--threads` 個別調整。
+錯字率同時列原始值和數字正規化後的值（「一百二十」和「120」算一樣）。
 
-## Roadmap
-
-1. ✅ Project skeleton, pluggable engine, built-in Android recognizer (online and offline)
-2. ✅ On-device model (sherpa-onnx) with speaker tags, benchmarked on latency first; streaming cloud engine (Google Cloud Speech-to-Text) still to do
-3. More text clean-up: OpenCC Traditional conversion, user word list, segmenting at pauses
-4. Real-world testing and an installable release APK
+模型資料夾放解開的 sherpa-onnx 模型壓縮檔（見 `desktop` 的 `AsrModel`／`SpeakerModel`）。

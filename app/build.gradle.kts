@@ -44,6 +44,12 @@ android {
     packaging {
         resources.excludes += listOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
     }
+
+    // CI runs lint as a report only (build/reports/lint-results-debug.html) for now.
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 // sherpa-onnx publishes its Android library on GitHub releases, not Maven: download it (checked by SHA-256).

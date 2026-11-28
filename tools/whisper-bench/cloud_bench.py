@@ -91,7 +91,7 @@ def run_one(client, recognizer, d, name):
             fin.append(done[0] - sg["end"])
     return {"id": name, "dur": dur, "ref": len(ref), "err": edit(ref, hyp),
             "err_nofill": edit([x for x in ref if x not in FILLERS], [x for x in hyp if x not in FILLERS]),
-            "ref_nofill": len([x for x in ref if x not in FILLERS]), "ttfp": ttfp, "final": fin, "text": tw(hyp_text)[:300]}
+            "ref_nofill": len([x for x in ref if x not in FILLERS]), "ttfp": ttfp, "final": fin, "text": tw(hyp_text), "finals": [tw(f["text"]) for f in finals]}
 
 
 def main():

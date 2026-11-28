@@ -31,7 +31,12 @@ abstract class DownloadFile : DefaultTask() {
             for (attempt in 1..4) {
                 try {
                     logger.lifecycle("Downloading ${url.get()} (attempt $attempt)")
-                    URI(url.get()).toURL().openStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                    // Timeouts so a stalled GitHub download fails and retries instead of hanging the build.
+                    val conn = URI(url.get()).toURL().openConnection().apply {
+                        connectTimeout = CONNECT_TIMEOUT_MS
+                        readTimeout = READ_TIMEOUT_MS
+                    }
+                    conn.getInputStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
                     lastError = null
                     break
                 } catch (e: Exception) {
@@ -50,6 +55,12 @@ abstract class DownloadFile : DefaultTask() {
         }
         out.parentFile.mkdirs()
         cached.copyTo(out, overwrite = true)
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 30_000
+        /** Longest wait for the next bytes (not for the whole file). */
+        const val READ_TIMEOUT_MS = 60_000
     }
 
     private fun sha256Of(f: File): String {
