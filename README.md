@@ -13,6 +13,8 @@ Android 和 iPhone 的即時字幕 App：把身邊的人說的話即時變成字
   - Azure 雲端：使用者自己的金鑰，比較準；失敗或超過費用上限時自動改用離線。
 - **可移植。** 辨識介面和文字處理放在 `:core`（Kotlin Multiplatform），可以用在其他裝置，例如智慧眼鏡。
 
+給使用者看的：[使用說明（含截圖）](docs/user-guide.md)、[Android 安裝說明](docs/install-android.md)。
+
 需求見 [docs/requirements.md](docs/requirements.md)，進度與下一步見 [docs/roadmap.md](docs/roadmap.md)，技術決策見 [docs/decisions.md](docs/decisions.md)。
 
 ## 模組

@@ -221,7 +221,7 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("engine")?.let { viewModel.selectEngine(it) }
         intent.getStringExtra("debug_wav")?.let { name ->
             viewModel.stop()
-            viewModel.useDebugWav(if (name.isEmpty()) null else File(getExternalFilesDir(null), name))
+            viewModel.useDebugWav(if (name.isEmpty()) null else File(getExternalFilesDir(null), name), showBanner = !intent.getBooleanExtra("quiet", false))
         }
         if (intent.getBooleanExtra("autostart", false)) {
             viewModel.clear()

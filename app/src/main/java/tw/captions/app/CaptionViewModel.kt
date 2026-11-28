@@ -180,11 +180,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.Default) { OpenCcTaiwan.toTraditional("预热") }
     }
 
-    fun useDebugWav(file: File?) {
+    /** [showBanner] = false hides the 測試模式 line, e.g. for screenshots in the user guide. */
+    fun useDebugWav(file: File?, showBanner: Boolean = true) {
         if (!BuildConfig.DEBUG) return
         debugWav = file
         WavFileInput.rewindAll()
-        _ui.update { it.copy(debugWav = file?.name) }
+        _ui.update { it.copy(debugWav = file?.name?.takeIf { showBanner }) }
     }
     private val _ui = MutableStateFlow(
         UiState(engineId = prefs.getString("engine", null)?.takeIf { id -> engines.any { it.id == id } } ?: EngineCatalog.DEFAULT_ID),
