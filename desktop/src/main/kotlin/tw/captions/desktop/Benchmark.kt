@@ -90,6 +90,10 @@ fun main(args: Array<String>) {
         speakerReclusterBenchmark(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "docs/benchmark-speakers.md"), quick = "--quick" in opts)
         return
     }
+    if ("--second-pass-check" in opts) {
+        secondPassCheck(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "build/second-pass-check.md"))
+        return
+    }
     if ("--second-pass" in opts) {
         secondPassBenchmark(modelsDir, File(opt("--real") ?: "datasets/prepared"), File(opt("--out") ?: "docs/benchmark-second-pass.md"), quick = "--quick" in opts)
         return
@@ -287,6 +291,7 @@ fun runFile(
                     if (audio != null) {
                         val t0 = System.nanoTime()
                         val again = secondPass!!.recognize(audio)
+                        if (System.getenv("SECOND_PASS_TRACE") != null) System.err.println("TRACE ${truth.id} ${String.format(java.util.Locale.ROOT, "%.2f", audio.size / 16000.0)}s | live=${e.text} | again=$again | kept=${tw.captions.core.SecondPass.choose(e.text, again) == null}")
                         secondPassStats?.seconds?.add((System.nanoTime() - t0) / 1e9)
                         secondPassStats?.audioSeconds?.add(audio.size / 16000.0)
                         val chosen = tw.captions.core.SecondPass.choose(e.text, again)
@@ -503,7 +508,7 @@ fun report(results: List<Pair<EngineSetup, List<FileResult>>>, extra: Map<AsrMod
     }
 }
 
-private fun datasetOf(t: Truth) = t.dialog.substringBefore('_')
+internal fun datasetOf(t: Truth) = t.dialog.substringBefore('_')
 
 /** Taiwan-accent sets first: they decide model choice. */
 private val DATASETS = linkedMapOf(
