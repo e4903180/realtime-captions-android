@@ -17,4 +17,10 @@ class HotwordsTest {
         assertEquals("台 北 101", Hotwords.spaceCjk("台北101"))
         assertEquals("我 的 iPhone", Hotwords.spaceCjk("我的iPhone"))
     }
+
+    @Test
+    fun vocabularyKeepsMergeOrderAfterUnk() {
+        val v = Hotwords.bpeVocab(listOf("<blk>", "▁林", "<unk>", ",", "s"))
+        assertEquals("<blk>\t0.0\n▁林\t0.0\n<unk>\t0.0\n,\t-1.0\ns\t-2.0", v)
+    }
 }

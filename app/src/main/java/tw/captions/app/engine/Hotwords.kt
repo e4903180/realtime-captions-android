@@ -15,22 +15,39 @@ object Hotwords {
     /** Bonus per token; 4.0 got the most names right with no false insertions in the benchmark. */
     const val SCORE = 4.0f
 
-    class Files(val file: File, val vocab: File)
+    class Files(val file: File, val vocab: File, val lines: List<String>)
 
     /** Writes the hotwords file (and the BPE vocabulary, built from tokens.txt) next to the model, or null when there are no words. */
     fun prepare(models: ModelStore, prefix: String, words: List<String>): Files? {
         val lines = words.map { it.trim() }.filter { it.isNotEmpty() }.map { spaceCjk(ZhConverterUtil.toSimple(it)) }.distinct()
         if (lines.isEmpty()) return null
-        val vocab = models.file("$prefix-bpe.vocab")
+        // v2: scores in merge order (v1 had all 0.0, which split "▁林" into "▁" + unknown).
+        val vocab = models.file("$prefix-bpe-v2.vocab")
         if (!vocab.isFile) {
-            // The release archives have bpe.model but no bpe.vocab. With every hotword spaced into
-            // single tokens the scores do not matter, so the token list with score 0 is enough.
             val tokens = models.file("$prefix-tokens.txt").readLines(Charsets.UTF_8)
-            vocab.writeText(tokens.mapNotNull { it.substringBeforeLast(' ').takeIf { p -> p.isNotEmpty() } }.joinToString("\n") { "$it\t0.0" }, Charsets.UTF_8)
+                .mapNotNull { it.substringBeforeLast(' ').takeIf { p -> p.isNotEmpty() } }
+            vocab.writeText(bpeVocab(tokens), Charsets.UTF_8)
         }
         val file = models.file("$prefix-hotwords.txt")
         file.writeText(lines.joinToString("\n"), Charsets.UTF_8)
-        return Files(file, vocab)
+        return Files(file, vocab, lines)
+    }
+
+    /**
+     * BPE vocabulary ("piece<TAB>score" lines) from tokens.txt. The release archives ship bpe.model
+     * but no bpe.vocab. In bpe.model the special and Chinese pieces up to `<unk>` score 0 and the
+     * learned pieces after it score lower and lower; BPE only uses the order, so 0 then -1, -2, …
+     * encodes exactly like the real scores (checked against sentencepiece's export on the benchmark).
+     * All zeros would tie "▁" with "▁林" and break every Chinese hotword.
+     */
+    fun bpeVocab(tokens: List<String>): String {
+        var after = false
+        var k = 0
+        return tokens.joinToString("\n") { t ->
+            val score = if (after) -(++k).toFloat() else 0f
+            if (t == "<unk>") after = true
+            "$t\t$score"
+        }
     }
 
     /** Puts a space between Chinese characters (and between Chinese and other text). */

@@ -90,5 +90,10 @@ fun hotwordsTest(modelsDir: File, namesDir: File, dialogsDir: File, vocabulary: 
         appendLine()
         appendLine("Vocabulary words right: occurrences in the reference that also appear in the captions (Taiwan Traditional, after s2twp).")
     })
+    // Captions per setup, for reading the changes (names set only; testdata, no personal content).
+    File(out.path.removeSuffix(".md") + "-captions.txt").writeText(
+        rows.joinToString("\n\n") { r -> "== ${r.label}\n" + r.names.joinToString("\n") { "${it.truth.id}: ${it.captionText}" } },
+        Charsets.UTF_8,
+    )
     System.err.println("wrote $out")
 }

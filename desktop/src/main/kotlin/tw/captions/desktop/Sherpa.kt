@@ -94,7 +94,7 @@ class SherpaAsr(
                     )
                     .setTokens(path(model.tokens))
                     .setNumThreads(numThreads)
-                    .apply { if (hotwords != null) setModelingUnit(hotwordsUnit).setBpeVocab(File(dir, "bpe.vocab").path) }
+                    .apply { if (hotwords != null) setModelingUnit(hotwordsUnit).setBpeVocab(bpeVocabFile(dir).path) }
                     .build(),
             )
             .setEnableEndpoint(true)
@@ -287,4 +287,21 @@ fun spaceCjk(word: String): String = buildString {
         if (i > 0 && c != ' ' && last() != ' ' && (han(c) || han(word[i - 1]))) append(' ')
         append(c)
     }
+}
+
+/**
+ * bpe.vocab for hotwords: the model's own file if present, otherwise built from tokens.txt the same
+ * way the Android app does (score 0 up to `<unk>`, then -1, -2, …; see app Hotwords.bpeVocab).
+ */
+fun bpeVocabFile(modelDir: File): File {
+    File(modelDir, "bpe.vocab").takeIf { it.isFile }?.let { return it }
+    val tokens = File(modelDir, "tokens.txt").readLines(Charsets.UTF_8).mapNotNull { it.substringBeforeLast(' ').takeIf { p -> p.isNotEmpty() } }
+    var after = false
+    var k = 0
+    val text = tokens.joinToString("\n") { t ->
+        val score = if (after) -(++k).toFloat() else 0f
+        if (t == "<unk>") after = true
+        "$t\t$score"
+    }
+    return File.createTempFile("bpe", ".vocab").also { it.deleteOnExit(); it.writeText(text, Charsets.UTF_8) }
 }
