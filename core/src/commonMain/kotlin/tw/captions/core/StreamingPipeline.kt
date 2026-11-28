@@ -96,10 +96,11 @@ data class PipelineConfig(
      */
     val unknownIsBackground: Boolean = true,
     /**
-     * Lines too short for a voice profile take the previous speaker's letter (the behaviour before
-     * ADR-036) instead of none. Off by default; kept for measuring (docs/benchmark-speakers.md).
+     * Lines too short for a voice profile take the previous speaker's letter instead of none. On by
+     * default (ADR-040): in 4-person meetings most short lines belong to whoever was speaking, and
+     * leaving them without a letter cut speaker accuracy from 41% to 29% (docs/benchmark-speakers.md).
      */
-    val shortLinesKeepLastSpeaker: Boolean = false,
+    val shortLinesKeepLastSpeaker: Boolean = true,
 )
 
 /**
