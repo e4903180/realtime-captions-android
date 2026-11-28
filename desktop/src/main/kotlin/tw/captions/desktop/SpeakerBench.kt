@@ -14,24 +14,25 @@ fun speakerReclusterBenchmark(modelsDir: File, dir: File, out: File, quick: Bool
     val files = if (quick) all.groupBy { it.dialog.substringBefore('_') }.values.flatMap { it.take(3) } else all
     require(files.isNotEmpty()) { "no multi-speaker files in $dir" }
     val setup = EngineSetup(modelsDir, pipeline = PipelineConfig(vadEndpointSilenceSec = 0.6f, focusMarginDb = null), numThreads = 4)
-    // "End": regroup once when the recording is over. "App": regroup after every line and hand the
-    // groups back to the live clustering, as the phone does; only this shows letters changing later.
-    data class Variant(val label: String, val end: Pair<Float, Int>? = null, val app: Pair<Float, Int>? = null)
-    val variants: List<Pair<Variant, (Int) -> Variant>> = buildList {
-        add(Variant("Live only") to { _: Int -> Variant("Live only") })
-        for (t in listOf(0.45f, 0.55f, 0.60f, 0.65f, 0.70f)) {
-            add(Variant("End regroup $t") to { _: Int -> Variant("", end = t to 0) })
-            add(Variant("App regroup $t") to { _: Int -> Variant("", app = t to 0) })
-        }
-        add(Variant("App regroup 0.55, number of people given") to { n: Int -> Variant("", app = 0.55f to n) })
-    }
+    // ADR-039 policy and the alimeeting check: which change since ADR-036 costs meeting accuracy.
+    // "Given" uses tw.captions.core.SpeakerPolicy (regroup after every line, number of people as a maximum).
+    data class Variant(val label: String, val setup: EngineSetup, val given: Boolean = false, val app: Pair<Float, Int>? = null)
+    fun cfg(f: (PipelineConfig) -> PipelineConfig) = setup.copy(pipeline = f(setup.pipeline))
+    val variants = listOf(
+        Variant("自動 = live only (new)", setup),
+        Variant("自動, short lines keep the last letter", cfg { it.copy(shortLinesKeepLastSpeaker = true) }),
+        Variant("自動, loudness filter 8 dB", cfg { it.copy(focusMarginDb = 8f) }),
+        Variant("自動, both (before ADR-036)", cfg { it.copy(shortLinesKeepLastSpeaker = true, focusMarginDb = 8f) }),
+        Variant("Number of people given (new, 0.55)", setup, given = true),
+        Variant("Old: regroup 0.60 on 自動 (main before ADR-039)", setup, app = 0.60f to 0),
+    ).filter { v -> System.getenv("SPEAKER_ONLY")?.let { only -> only.split(',').any { v.label.contains(it.trim()) } } ?: true }
     val rows = mutableListOf<Pair<String, List<FileResult>>>()
-    SherpaStack(setup).use { stack ->
-        for ((v, cfg) in variants) {
-            System.err.println("== ${v.label}")
+    for (v in variants) {
+        System.err.println("== ${v.label}")
+        SherpaStack(v.setup).use { stack ->
             rows += v.label to files.map { t ->
-                val c = cfg(t.segments.map { it.speaker }.distinct().size)
-                runFile(stack, t, dir, false, recluster = c.end, appRegroup = c.app)
+                val n = t.segments.map { it.speaker }.distinct().size
+                runFile(stack, t, dir, false, appRegroup = v.app, policySpeakers = if (v.given) n else null)
             }
         }
     }

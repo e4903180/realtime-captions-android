@@ -106,7 +106,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         /** Same as iPhone (ADR-027). */
-        const val RECLUSTER_THRESHOLD = tw.captions.core.SpeakerRecluster.DEFAULT_THRESHOLD
 
         /** Azure accepts a few hundred phrases; more also stops helping. */
         const val MAX_VOCABULARY = 200
@@ -828,12 +827,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         return@collect
                     }
                     var captions = assembler.onEvent(event)
-                    // Regroup every line by voice after each finished one, so earlier speaker
-                    // mistakes get fixed too (ADR-027).
+                    // Speaker letters after each finished line (ADR-039): 自動 keeps the live letters;
+                    // with a number of people the lines are regrouped and the live grouping follows.
                     if (event is tw.captions.core.TranscriptEvent.Final && _ui.value.speakersOn) {
-                        captions = assembler.recluster(RECLUSTER_THRESHOLD, _ui.value.speakerCount)
-                        // The next line is compared with the corrected groups, so its letter does not jump.
-                        if (!isPaid(engine.id)) clusterer.replaceProfiles(assembler.speakerProfiles())
+                        captions = tw.captions.core.SpeakerPolicy.afterFinal(assembler, clusterer.takeIf { !isPaid(engine.id) }, _ui.value.speakerCount)
                     }
                     _ui.update { it.copy(captions = captions) }
                     // Only finished lines change the transcript.
@@ -1019,8 +1016,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSpeakerCount(n: Int) {
         prefs.edit().putInt("speaker_count", n).apply()
-        _ui.update { it.copy(speakerCount = n, captions = assembler.recluster(RECLUSTER_THRESHOLD, n)) }
-        if (!isPaid(_ui.value.engineId)) clusterer.replaceProfiles(assembler.speakerProfiles())
+        _ui.update { it.copy(speakerCount = n, captions = tw.captions.core.SpeakerPolicy.afterFinal(assembler, clusterer.takeIf { !isPaid(_ui.value.engineId) }, n)) }
         recordLines()
     }
 
