@@ -126,11 +126,17 @@ class CaptionAssembler(
         return if (speaker == null) !finalSpeakerKnown || last.speaker == null else speaker == last.speaker
     }
 
+    /**
+     * Joined utterances are separated by a space, the way TV subtitles mark a pause. A comma here
+     * put one at every breath (the recognizer ends an utterance after 0.6 s of silence), which
+     * read as wrong punctuation; real punctuation is left to the engine or the proofreader.
+     */
     private fun join(a: String, b: String): String {
         if (a.isEmpty()) return b
         val end = a.last()
-        val needsComma = end.isCjk() && b.firstOrNull()?.isCjk() == true
-        return if (needsComma) "$a，$b" else if (end.isLetterOrDigit() && b.firstOrNull()?.isLetterOrDigit() == true) "$a $b" else a + b
+        val start = b.firstOrNull() ?: return a
+        val words = (end.isLetterOrDigit() || end.isCjk()) && (start.isLetterOrDigit() || start.isCjk())
+        return if (words) "$a $b" else a + b
     }
 
     fun onEvent(event: TranscriptEvent): CaptionState = handle(withSpeakerName(event))
