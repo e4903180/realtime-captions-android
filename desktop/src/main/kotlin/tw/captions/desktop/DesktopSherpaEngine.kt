@@ -115,8 +115,11 @@ class SherpaStack(val setup: EngineSetup) : AutoCloseable {
     private val denoiser = setup.denoiser?.let { SherpaDenoiser(it, setup.modelsDir) }
 
     /** A fresh pipeline (new speaker profiles) sharing the loaded models. */
-    fun newPipeline(registry: tw.captions.core.VoiceRegistry? = null): StreamingPipeline =
-        StreamingPipeline(asr, vad, embedder, SpeakerClusterer(setup.speakerThreshold), setup.pipeline, denoiser, registry).also { it.reset() }
+    fun newPipeline(
+        registry: tw.captions.core.VoiceRegistry? = null,
+        clusterer: SpeakerClusterer = SpeakerClusterer(setup.speakerThreshold),
+    ): StreamingPipeline =
+        StreamingPipeline(asr, vad, embedder, clusterer, setup.pipeline, denoiser, registry).also { it.reset() }
 
     /** Speaker embedding of some audio (for registering voices in tests). */
     fun embed(samples: FloatArray): FloatArray = requireNotNull(embedder) { "no speaker model" }.embed(samples)
