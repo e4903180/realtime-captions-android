@@ -40,6 +40,7 @@ fun PeopleSheet(
     var merging by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var forgetting by remember { mutableStateOf<Pair<Int, String>?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = LocalPalette.current.surface) {
+        SheetStatusBar()
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp),

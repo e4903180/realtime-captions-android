@@ -66,6 +66,7 @@ fun EnginePicker(
 ) {
     var confirmRemove by remember { mutableStateOf<EngineInfo?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SheetBg) {
+        SheetStatusBar()
         Column(
             Modifier
                 .fillMaxWidth()

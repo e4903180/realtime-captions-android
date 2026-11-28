@@ -91,3 +91,23 @@ fun AppTheme(appearance: Appearance, content: @Composable () -> Unit) {
 
 /** Shorthands for the current palette. */
 val Ink: Color @Composable get() = LocalPalette.current.text
+
+/**
+ * Inside a ModalBottomSheet: the sheet has its own window, which picks status-bar icon colours
+ * from the system setting. With a forced dark / light appearance that gives white icons on white
+ * (or black on black); set them from the app's palette instead.
+ */
+@Composable
+fun SheetStatusBar() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val light = !LocalPalette.current.dark
+    androidx.compose.runtime.SideEffect {
+        var parent: android.view.ViewParent? = view.parent
+        while (parent != null && parent !is androidx.compose.ui.window.DialogWindowProvider) parent = parent.parent
+        val window = (parent as? androidx.compose.ui.window.DialogWindowProvider)?.window ?: return@SideEffect
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
+    }
+}

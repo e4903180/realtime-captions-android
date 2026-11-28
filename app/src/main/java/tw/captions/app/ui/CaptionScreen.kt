@@ -1,6 +1,7 @@
 package tw.captions.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -69,6 +70,9 @@ fun CaptionScreen(
     onOpenPeople: () -> Unit = {},
     onToggleTv: () -> Unit = {},
     onOpenTranscripts: () -> Unit = {},
+    /** Microphone level 0..1, read only where the meter draws (it changes 15 times a second). */
+    audioLevel: () -> Float = { 0f },
+    onResumeAfterIdle: () -> Unit = {},
 ) {
     run {
         Column(
@@ -92,7 +96,7 @@ fun CaptionScreen(
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
             }
-            if (ui.running) LevelMeter(ui.captions.audioLevel)
+            if (ui.running) LevelMeter(audioLevel)
             ui.modelDownload?.let { p ->
                 Text(
                     "正在下載離線模型… ${(p * 100).toInt()}%",
@@ -100,7 +104,7 @@ fun CaptionScreen(
                     fontSize = 18.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                LevelMeter(p)
+                LevelMeter { p }
             }
             ui.debugWav?.let {
                 Text(
@@ -117,6 +121,25 @@ fun CaptionScreen(
                     fontSize = 18.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+            }
+            if (ui.micSilenced) {
+                Text(
+                    "麥克風被其他 App 使用中（例如通話或錄音），暫時收不到聲音",
+                    color = LocalPalette.current.warn,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (ui.idlePaused && !ui.running) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "10 分鐘沒有聽到說話，已自動暫停（雲端也不再計費）",
+                        color = LocalPalette.current.warn,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onResumeAfterIdle) { Text("繼續", fontSize = 18.sp, color = Ink) }
+                }
             }
             ui.cloudNotice?.let {
                 Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
@@ -326,21 +349,22 @@ private fun lineKey(ui: UiState, index: Int): Any = ui.lineIds.getOrNull(index)?
 
 /** Thin bar showing the microphone level, so the reader can see that sound is coming in. */
 @Composable
-private fun LevelMeter(level: Float) {
+private fun LevelMeter(level: () -> Float) {
+    val accent = LocalPalette.current.accent
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .height(6.dp)
-            .background(LocalPalette.current.meterTrack, CircleShape),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(level.coerceIn(0f, 1f))
-                .height(6.dp)
-                .background(LocalPalette.current.accent, CircleShape),
-        )
-    }
+            .background(LocalPalette.current.meterTrack, CircleShape)
+            // The level is read while drawing, so a new level only redraws this bar.
+            .drawBehind {
+                val w = size.width * level().coerceIn(0f, 1f)
+                if (w > 0f) {
+                    drawRoundRect(accent, size = androidx.compose.ui.geometry.Size(w, size.height), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+                }
+            },
+    )
 }
 
 // Distinct, high-contrast colors for the current background, one per speaker (see Palette).
