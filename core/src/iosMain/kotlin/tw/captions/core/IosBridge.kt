@@ -54,6 +54,10 @@ fun createOfflinePipeline(
         focusMarginDb = if (backgroundFilter) 8f else null,
         keepUtteranceAudioSec = if (keepAudio) 20f else 0f,
         unknownIsBackground = backgroundFilter,
+        // iPhone keeps short lines without a letter for now (ADR-040 is on for Android): with the
+        // previous speaker's letter, short replies from someone else join that person's line.
+        // Revisit together with short interjection detection.
+        shortLinesKeepLastSpeaker = false,
     ),
     registry = registry,
 )
