@@ -121,7 +121,7 @@ class AzureSpeechEngine(
 
         val pump = launch(Dispatchers.IO) {
             val input = try {
-                openInput()
+                BufferedAudioInput(openInput())
             } catch (e: Exception) {
                 trySend(TranscriptEvent.Error("無法開啟麥克風", recoverable = false))
                 close()
