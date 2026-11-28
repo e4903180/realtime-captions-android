@@ -71,13 +71,6 @@ fun speakerLabelOf(line: CaptionLine): String? = line.speakerName ?: line.speake
 /** Live speaker grouping for [createOfflinePipeline]; the app keeps it to sync after regrouping. */
 fun createSpeakerClusterer(threshold: Float): SpeakerClusterer = SpeakerClusterer(threshold)
 
-/**
- * After [CaptionAssembler.recluster]: the live grouping takes over the regrouped voices, so the
- * next line gets its final letter at once (from the next line; safe from any thread).
- */
-fun syncSpeakers(clusterer: SpeakerClusterer, assembler: CaptionAssembler) =
-    clusterer.replaceProfiles(assembler.speakerProfiles())
-
 /** Captions cleared: the live grouping starts again from A. */
 fun resetSpeakers(clusterer: SpeakerClusterer) = clusterer.replaceProfiles(emptyMap())
 
