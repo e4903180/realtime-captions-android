@@ -42,7 +42,8 @@ final class CaptionViewModel: ObservableObject {
             syncSpeakers()
         }
     }
-    static let reclusterThreshold: Float = 0.45
+    /// Shared with Android (ADR-036).
+    static let reclusterThreshold: Float = SpeakerRecluster.shared.DEFAULT_THRESHOLD
 
     enum BackgroundFilter: String, CaseIterable, Identifiable {
         case off = "OFF", dim = "DIM", hide = "HIDE"
