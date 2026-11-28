@@ -533,14 +533,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val index = _ui.value.captions.lines.indices.firstOrNull { assembler.lineId(it) == lineId } ?: return
         val line = _ui.value.captions.lines[index]
         val voice = line.voice ?: return
-        val first = registry.isEmpty
         registry.add(name.trim(), voice)
         savePeople()
         // Every line with the same letter gets the name, and so do that speaker's later lines.
         _ui.update { it.copy(captions = assembler.nameSpeaker(index, name.trim())) }
         recordLines()
-        // Once someone is known, dim voices nobody registered (TV, other tables) unless the user chose otherwise.
-        if (first && !_ui.value.tvMode && _ui.value.backgroundMode == tw.captions.core.BackgroundMode.OFF) setBackgroundMode(tw.captions.core.BackgroundMode.DIM)
+        // The background filter stays as the user set it (tony 2026-11-28): with it off, people not
+        // named yet keep normal captions and letters; 淡化／隱藏 for unknown voices is the user's choice.
     }
 
     fun forgetPerson(id: Int) {
