@@ -330,3 +330,13 @@
 - **決定：** 用一把正式簽章金鑰（RSA 4096，效期約 33 年，PKCS12）編正式版 APK，tony 用 LINE 或雲端硬碟傳給家人安裝。金鑰和隨機密碼放在 `datasets/release/`（git 忽略），Gradle 從 `CAPTIONS_KEYSTORE_PROPERTIES` 環境變數或 `local.properties` 的 `captions.keystore.properties` 讀取；沒有這個檔案時正式版不簽章，CI 不受影響。versionCode 預設是 git commit 數（也可用 `-PversionCode`），保證新版可以覆蓋安裝。正式版只放 arm64 的原生函式庫（`-PwithX86=true` 才加 x86_64，給模擬器測試）。先不開 R8，避免 sherpa-onnx（JNI）、Azure、Anthropic SDK 被裁掉。偵錯用的音檔輸入和金鑰匯入只在 debug 版有效。
 - **其他選項：** Google Play 內部測試（會自動更新，之後再做）；debug 版 APK（每台電腦的簽章不同，無法互相覆蓋更新）。
 - **後果：** 金鑰遺失就不能再更新已安裝的 App（家人要先移除再裝，資料會不見），所以 tony 要另外備份 `datasets/release/`。之後上架 Play 可以用同一把金鑰。家人安裝說明見 docs/install-android.md。
+
+## ADR-038 離線引擎使用自訂詞彙（熱詞）
+
+- **日期：** 2026-11-28
+- **背景：** 自訂詞彙原本只有 Azure 會用；離線 X-ASR 第一次測熱詞沒有效果（docs/benchmark-hotwords.md）。
+- **原因：** X-ASR 輸出簡體字，BPE 一個中文字一個 token（「▁林」），繁體或連在一起的詞會被編成 unknown。另外模型壓縮檔沒有 `bpe.vocab`，自己產生時如果分數全填 0，「▁」和「▁林」平手，字會被拆錯。
+- **決定：** 使用者有填詞彙時，離線引擎改用 modified beam search（4 條路徑），熱詞分數 4.0。詞彙先用 opencc4j 轉簡體、每個中文字之間加空格；`bpe.vocab` 從 tokens.txt 產生，`<unk>` 之前分數 0、之後 -1、-2……（和 bpe.model 的順序相同）。沒有詞彙時維持 greedy，跟以前一樣。
+- **結果：** 人名地名測資：詞彙認對 43% → 74%，錯字率 13.5% → 8.2%，沒有亂插詞；對話錯字率 1.6% → 1.2%；延遲差異在誤差內。模擬器上同樣有效。
+- **後果：** 有詞彙時多一點運算（beam search），手機上耗電要實機確認。iPhone 版還沒接上。
+

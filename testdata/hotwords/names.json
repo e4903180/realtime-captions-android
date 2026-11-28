@@ -1,0 +1,33 @@
+{
+  "_comment": "Proper-noun test for custom vocabulary (hotwords): sentences full of Taiwanese names, places, shops and brands that a family would add to 自訂詞彙. Spoken with Windows TTS by testdata/hotwords/generate_names.ps1 into datasets/hotwords_names (not in git). 'vocabulary' is what the user would type; it also has words that never occur, to catch false insertions.",
+  "voices": ["Microsoft Yating", "Microsoft Zhiwei", "Microsoft Hanhan Desktop"],
+  "sentences": [
+    "阿嬤說這週末要去鶯歌老街買陶瓷。",
+    "我跟林怡君約在頭份車站前面碰面。",
+    "陳冠廷今天在三峽祖師廟幫忙拜拜。",
+    "下禮拜我們全家要去礁溪泡溫泉。",
+    "黃柏翰的阿公住在麻豆，種了很多文旦。",
+    "週六中午在鼎泰豐吃小籠包，記得先訂位。",
+    "張雅婷說她在竹北的公司上班。",
+    "我們去旗津吃海鮮，再搭渡輪回鼓山。",
+    "許家豪的女兒在員林讀國小。",
+    "晚上去饒河夜市吃胡椒餅，再去松山慈祐宮。",
+    "蔡佩珊推薦我去集集騎腳踏車。",
+    "醫生說要去長庚醫院做復健。",
+    "李承恩明天要搭高鐵去左營開會。",
+    "我媽很喜歡全聯的鮮奶，每次都買兩瓶。",
+    "吳宗憲的節目今天晚上重播。",
+    "王曉明說他在埔里的親戚會寄百香果過來。",
+    "我們家的狗叫做豆花，牠很怕打雷。",
+    "郭靜宜要去羅東運動公園散步。",
+    "這個週日要去北港朝天宮看遶境。",
+    "鄭宇翔在新營開了一間咖啡店。"
+  ],
+  "vocabulary": [
+    "鶯歌", "林怡君", "頭份", "陳冠廷", "三峽", "祖師廟", "礁溪", "黃柏翰", "麻豆", "文旦",
+    "鼎泰豐", "張雅婷", "竹北", "旗津", "鼓山", "許家豪", "員林", "饒河夜市", "胡椒餅", "慈祐宮",
+    "蔡佩珊", "集集", "長庚醫院", "李承恩", "左營", "全聯", "吳宗憲", "王曉明", "埔里", "百香果",
+    "豆花", "郭靜宜", "羅東", "北港", "朝天宮", "遶境", "鄭宇翔", "新營",
+    "周子瑜", "梧棲", "后里", "龍潭", "楊梅", "林口", "蘆洲", "汐止", "瑞芳", "九份", "東港", "恆春"
+  ]
+}

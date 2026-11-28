@@ -63,6 +63,10 @@ data class EngineSetup(
     val hideBackground: Boolean = false,
     val hotwords: File? = null,
     val beamSearch: Boolean = false,
+    val hotwordsScore: Float = 1.5f,
+    val hotwordsUnit: String = "bpe",
+    val hotwordsSimplified: Boolean = false,
+    val hotwordsSpaced: Boolean = false,
     val denoiser: DenoiserModel? = null,
     /** The caption screen joins one person's utterances less than this many seconds apart (null = one line each). */
     val mergeGapSec: Double? = BenchDefaults.mergeGapSec,
@@ -109,7 +113,10 @@ fun configLine(setup: EngineSetup): String =
 
 /** Loaded sherpa-onnx models wired into a [StreamingPipeline]. Reusable across audio streams. */
 class SherpaStack(val setup: EngineSetup) : AutoCloseable {
-    private val asr = SherpaAsr(setup.asrModel, setup.modelsDir, setup.numThreads, setup.asrTrailingSilenceSec, setup.hotwords, setup.beamSearch)
+    private val asr = SherpaAsr(
+        setup.asrModel, setup.modelsDir, setup.numThreads, setup.asrTrailingSilenceSec, setup.hotwords, setup.beamSearch,
+        setup.hotwordsScore, setup.hotwordsUnit, setup.hotwordsSimplified, setup.hotwordsSpaced,
+    )
     private val vad = if (setup.useVad) SherpaVad(setup.modelsDir, setup.vadMinSilenceSec, setup.vadThreshold) else null
     private val embedder = setup.speakerModel?.let { SherpaEmbedder(it, setup.modelsDir) }
     private val denoiser = setup.denoiser?.let { SherpaDenoiser(it, setup.modelsDir) }
