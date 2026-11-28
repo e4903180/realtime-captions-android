@@ -320,10 +320,8 @@ final class CaptionViewModel: ObservableObject {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let i = lines.firstIndex(where: { $0.id == id }), i < assembler.state.lines.count else { return }
         if remember, let voice = assembler.state.lines[i].voice {
-            let first = VoiceStore.shared.people.isEmpty
+            // The background filter is left as the user set it (same as Android).
             VoiceStore.shared.remember(name: name, voice: voice)
-            // Like Android (ADR-022): once someone is known, other voices are dimmed, not hidden.
-            if first && backgroundFilter == .off && !tvMode { backgroundFilter = .dim }
         }
         apply(wholeSpeaker ? assembler.nameSpeaker(index: Int32(i), name: name) : assembler.nameLine(index: Int32(i), name: name))
     }

@@ -119,7 +119,7 @@ struct EnginePickerView: View {
                         ForEach(CaptionViewModel.BackgroundFilter.allCases) { Text($0.label).tag($0) }
                     }
                 } header: { Text("背景聲音") } footer: {
-                    Text("把電視、隔壁桌這類比較小聲的說話聲，以及有「認得的人」之後不認得的聲音，當成背景淡化或隱藏。安靜時也可能誤判小聲的人，所以預設關；第一次記住聲音時會自動改成淡化。只用在離線引擎，看電視模式時不作用。")
+                    Text("把電視、隔壁桌這類比較小聲的說話聲，以及有「認得的人」之後不認得的聲音，當成背景淡化或隱藏。安靜時也可能誤判小聲的人，所以預設關。只用在離線引擎，看電視模式時不作用。")
                 }
                 Section {
                     if models.isReady {

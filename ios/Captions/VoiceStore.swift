@@ -69,7 +69,7 @@ final class VoiceStore: ObservableObject {
         save()
     }
 
-    /// The same person registered twice ("爸" and "爸爸"): keep [into] with both voices.
+    /// The same person registered twice ("小明" and "阿明"): keep [into] with both voices.
     func merge(_ from: Int32, into: Int32) {
         guard let f = people.firstIndex(where: { $0.id == from }), let t = people.firstIndex(where: { $0.id == into }) else { return }
         registry.merge(fromId: from, intoId: into)

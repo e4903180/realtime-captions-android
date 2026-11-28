@@ -126,12 +126,12 @@ struct TranscriptDetailView: View {
                 }
             }
             .alert("改標題", isPresented: $renaming) {
-                TextField("例如：週三家庭聚餐", text: $newTitle)
+                TextField("例如：週三讀書會", text: $newTitle)
                 Button("取消", role: .cancel) {}
                 Button("儲存") { store.rename(id, to: newTitle) }
             }
             .alert("「\(renamingSpeaker ?? "")」是誰？", isPresented: Binding(get: { renamingSpeaker != nil }, set: { if !$0 { renamingSpeaker = nil } })) {
-                TextField("名字，例如 媽媽", text: $speakerName)
+                TextField("名字，例如 小明", text: $speakerName)
                 Button("取消", role: .cancel) {}
                 Button("整份都改") { if let old = renamingSpeaker { store.renameSpeaker(id, from: old, to: speakerName) } }
             } message: {
