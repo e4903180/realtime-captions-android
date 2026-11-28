@@ -34,6 +34,15 @@ final class CaptionViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(fontSize, forKey: "fontSize") }
     }
 
+    /// 自訂詞彙: names and terms both engines should prefer, used from the next 開始 (ADR-038).
+    @Published private(set) var vocabulary: [String] = Hotwords.shared.parse(text: UserDefaults.standard.string(forKey: "vocabulary") ?? "")
+
+    /// One word per line (commas also split).
+    func setVocabulary(_ text: String) {
+        vocabulary = Hotwords.shared.parse(text: text)
+        UserDefaults.standard.set(vocabulary.joined(separator: "\n"), forKey: "vocabulary")
+    }
+
     /// How many people are talking: 0 = work it out (ADR-027).
     @Published var speakerCount: Int = UserDefaults.standard.integer(forKey: "speakerCount") {
         didSet {
@@ -181,6 +190,7 @@ final class CaptionViewModel: ObservableObject {
                 }
                 let azure = AzureEngine(key: key, region: AzureEngine.savedRegion)
                 azure.speakers = speakersOn
+                azure.phrases = vocabulary
                 engine = azure
             } else {
                 if !models.isReady { try await models.download() }
@@ -188,12 +198,13 @@ final class CaptionViewModel: ObservableObject {
                 let wantSpeakers = speakersOn
                 let wantBackground = effectiveBackground != .off
                 assembler.backgroundMode = IosBridgeKt.backgroundModeOf(name: effectiveBackground.rawValue)
-                if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers || offline?.backgroundFilter != wantBackground {
+                let wantHotwords = vocabulary
+                if offline == nil || offline?.hasSecondPass != wantSecond || offline?.hasSpeakers != wantSpeakers || offline?.backgroundFilter != wantBackground || offline?.hotwords != wantHotwords {
                     let files = models.files
                     let second = wantSecond ? secondPassStore.directory : nil
                     let registry = VoiceStore.shared.registry
                     offline = await Task.detached(priority: .userInitiated) {
-                        OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second, registry: registry, backgroundFilter: wantBackground)
+                        OfflineEngine(models: files, speakers: wantSpeakers, secondPassDirectory: second, registry: registry, backgroundFilter: wantBackground, hotwords: wantHotwords)
                     }.value
                 }
                 guard let offline else { return }
