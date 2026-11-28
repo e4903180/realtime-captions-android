@@ -243,12 +243,11 @@ struct CaptionView: View {
         }
     }
 
-    /// Same joining rule as the shared CaptionAssembler: a comma between Chinese, a space between words.
+    /// Same joining rule as the shared CaptionAssembler (ADR-041): a space between words or
+    /// Chinese characters, like a pause in TV subtitles; nothing next to punctuation.
     static func joiner(_ a: String, _ b: String) -> String {
         guard let x = a.last, let y = b.first else { return "" }
-        if !x.isASCII && !y.isASCII && x.isLetter && y.isLetter { return "，" }
-        if x.isASCII && y.isASCII && (x.isLetter || x.isNumber) && (y.isLetter || y.isNumber) { return " " }
-        return ""
+        return (x.isLetter || x.isNumber) && (y.isLetter || y.isNumber) ? " " : ""
     }
 
     private var status: some View {
