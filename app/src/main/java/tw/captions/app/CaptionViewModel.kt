@@ -111,28 +111,17 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Debug builds only: play this wav file instead of using the microphone (see README). */
     private var debugWav: File? = null
 
-    /**
-     * The debug wav being played. Kept across an engine switch (cloud falls back to offline), so
-     * the new engine continues where the old one was instead of starting the file again.
-     */
-    private var wavInput: WavFileInput? = null
-
-    private fun debugInput(): tw.captions.app.engine.AudioInput? {
-        val file = debugWav ?: return null
-        return wavInput?.takeIf { !it.finished } ?: WavFileInput(file).also { wavInput = it }
-    }
-
     private val registry = tw.captions.core.VoiceRegistry()
 
     /** Live speaker groups of the offline engine; corrected after every regrouping of finished lines. */
     private val clusterer = tw.captions.core.SpeakerClusterer()
 
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugInput() ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
-        SherpaOnnxEngine(models, openInput = { debugInput() ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
-            openInput = { debugInput() ?: openMic() },
+            openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() },
             speakersOn = { _ui.value.speakersOn },
         ),
     )
@@ -185,7 +174,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun useDebugWav(file: File?) {
         if (!BuildConfig.DEBUG) return
         debugWav = file
-        wavInput = null
+        WavFileInput.rewindAll()
         _ui.update { it.copy(debugWav = file?.name) }
     }
     private val _ui = MutableStateFlow(
@@ -381,7 +370,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun stopByUser() {
         limitOverridden = false
         stop()
-        wavInput = null // the next start plays the debug wav from the beginning
+        // The next start plays the debug wav from the beginning (an engine switch continues it).
+        WavFileInput.rewindAll()
         if (_ui.value.cloudNotice != null) {
             val saved = prefs.getString("engine", null)?.takeIf { id -> engines.any { it.id == id } } ?: EngineCatalog.DEFAULT_ID
             _ui.update { it.copy(engineId = saved, cloudNotice = null) }
@@ -768,8 +758,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 Log.e("CaptionsModels", "download failed", e)
+                val message = if (ModelStore.isNoSpace(e)) {
+                    val mb = ((e as? ModelStore.NotEnoughSpace)?.neededBytes ?: engine.packs.sumOf { it.downloadBytes } * 2) / 1_000_000
+                    "手機空間不足：下載離線模型需要約 $mb MB，請先清出空間再試一次"
+                } else "模型下載失敗，請確認網路後再試一次"
                 _ui.update {
-                    it.copy(modelDownload = null, downloadingEngine = null, captions = it.captions.copy(error = "模型下載失敗，請確認網路後再試一次"))
+                    it.copy(modelDownload = null, downloadingEngine = null, captions = it.captions.copy(error = message))
                 }
             }
         }

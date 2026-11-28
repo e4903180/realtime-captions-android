@@ -75,16 +75,24 @@ class MicInput @SuppressLint("MissingPermission") constructor(
  * time, so captions and speaker tags can be checked on an emulator without anyone speaking.
  * Ends with a few seconds of silence so the last line gets finished.
  */
-class WavFileInput(file: File) : AudioInput {
+class WavFileInput(private val file: File) : AudioInput {
     private val samples: ShortArray
     private var pos = 0
     private var tail = SAMPLE_RATE * 3
-    private var startMs = SystemClock.elapsedRealtime()
+    private val startMs = SystemClock.elapsedRealtime()
     private var played = 0L
-    private var lastReadMs = startMs
 
-    /** True once the file and the closing silence have been played. */
-    val finished: Boolean @Synchronized get() = pos >= samples.size && tail <= 0
+    companion object {
+        /**
+         * Where each file was when its last reader closed. A new reader of the same file (the
+         * cloud engine failed and the offline one takes over) continues from there instead of
+         * playing the file from the beginning again.
+         */
+        private val resumeAt = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+        /** The next reader starts at the beginning (the user pressed stop, or chose another file). */
+        fun rewindAll() = resumeAt.clear()
+    }
 
     init {
         val bytes = file.readBytes()
@@ -106,16 +114,13 @@ class WavFileInput(file: File) : AudioInput {
             p += 8 + len + (len and 1)
         }
         samples = requireNotNull(data) { "$file has no audio data" }
+        pos = (resumeAt[file.absolutePath] ?: 0).coerceIn(0, samples.size)
         Log.i(TAG, "wav input: ${file.name}, ${samples.size / SAMPLE_RATE.toFloat()} s")
     }
 
     @Synchronized
     override fun read(buffer: FloatArray): Int {
         if (pos >= samples.size && tail <= 0) return -1
-        // The same file continues after an engine switch (cloud to offline): pace from now on
-        // instead of racing to catch up with the pause.
-        val sinceLast = SystemClock.elapsedRealtime() - lastReadMs
-        if (sinceLast > 500) startMs += sinceLast
         var n = 0
         while (n < buffer.size && pos < samples.size) buffer[n++] = samples[pos++] / 32768f
         while (n < buffer.size && tail > 0) {
@@ -127,12 +132,13 @@ class WavFileInput(file: File) : AudioInput {
         val due = startMs + played * 1000 / SAMPLE_RATE
         val wait = due - SystemClock.elapsedRealtime()
         if (wait > 0) Thread.sleep(wait)
-        lastReadMs = SystemClock.elapsedRealtime()
         return n
     }
 
-    /** Nothing to release; the view model keeps the file open so a restarted engine continues where it was. */
-    override fun close() {}
+    @Synchronized
+    override fun close() {
+        if (pos >= samples.size) resumeAt.remove(file.absolutePath) else resumeAt[file.absolutePath] = pos
+    }
 }
 
 /**
