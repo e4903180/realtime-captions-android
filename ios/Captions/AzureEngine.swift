@@ -25,6 +25,9 @@ final class AzureEngine: CaptionEngine {
     /// Off: speaker tags from Azure are ignored (ADR-033).
     var speakers = true
 
+    /// The user's 自訂詞彙 (ADR-038).
+    var phrases: [String] = []
+
     init(key: String, region: String) {
         self.key = key
         self.region = region
@@ -59,6 +62,11 @@ final class AzureEngine: CaptionEngine {
               let audio = SPXAudioConfiguration(streamInput: stream)
         else { throw NSError(domain: "Azure", code: 1, userInfo: [NSLocalizedDescriptionKey: "無法建立 Azure 音訊串流"]) }
         let transcriber = try SPXConversationTranscriber(speechConfiguration: config, audioConfiguration: audio)
+        // 自訂詞彙 as a phrase list, like Android: names and terms are preferred.
+        if !phrases.isEmpty {
+            let grammar: SPXPhraseListGrammar? = SPXPhraseListGrammar(recognizer: transcriber)
+            for p in phrases { grammar?.addPhrase(p) }
+        }
 
         let speakers = self.speakers
         transcriber.addTranscribingEventHandler { _, e in

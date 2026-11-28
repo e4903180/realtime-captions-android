@@ -35,6 +35,11 @@ final class CaptionsTests: XCTestCase {
         XCTAssertEqual(converter.toTraditional(text: "需要重新启动"), "需要重新啟動")
     }
 
+    func testHotwordsFromBundledTables() {
+        let lines = Hotwords.shared.lines(words: ["臺灣大學", "陳冠宇", "iPhone手機"], simplifier: TaiwanChinese.makeSimplifier())
+        XCTAssertEqual(lines, ["台 湾 大 学", "陈 冠 宇", "iPhone 手 机"])
+    }
+
     func testAssemblerCleansUpText() {
         let assembler = IosBridgeKt.createCaptionAssembler(converter: TaiwanChinese.makeConverter())
         let state = assembler.onEvent(event: TranscriptEventFinal(text: "我们 坐 出租车 去,好吗?", speaker: nil, background: false, speakerName: nil, voice: nil))
@@ -83,6 +88,15 @@ final class CaptionsTests: XCTestCase {
         }
         let cjk = allText.unicodeScalars.filter { (0x4E00...0x9FFF).contains($0.value) }.count
         XCTAssertGreaterThan(cjk, 10, "expected Chinese text, got: \(allText)")
+
+        // 自訂詞彙 (ADR-038): with hotwords the engine switches to beam search and still captions.
+        let boosted = OfflineEngine(models: files, hotwords: ["臺灣大學", "林怡君"])
+        let again = boosted.transcribe(samples: try WavReader.read16kMono(dir.appendingPathComponent("test0.wav")))
+        print("hotwords test0.wav: \(again.map(\.text).joined(separator: " / "))")
+        XCTAssertFalse(again.map(\.text).joined().isEmpty)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("asr-hotwords.txt"), encoding: .utf8), "台 湾 大 学\n林 怡 君")
+        let vocab = try String(contentsOf: dir.appendingPathComponent("asr-bpe-v2.vocab"), encoding: .utf8)
+        XCTAssertTrue(vocab.contains("<unk>\t0.0"), "bpe vocab: \(vocab.prefix(200))")
     }
 
     func testProofreaderReadsAnswer() throws {

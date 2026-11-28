@@ -1,4 +1,5 @@
 import CaptionsCore
+import os
 import Foundation
 
 /// sherpa-onnx parts plugged into the shared Kotlin StreamingPipeline. Settings match the Android
@@ -11,7 +12,10 @@ enum Sherpa {
 final class SherpaAsr: NSObject, StreamingAsr {
     private let recognizer: SherpaOnnxRecognizer
 
-    init(models: ModelFiles) {
+    /// [hotwords]: the user's 自訂詞彙. With any, decoding switches to modified beam search with the
+    /// words boosted (ADR-038, same as Android): names right 43% → 74%, no false insertions.
+    init(models: ModelFiles, hotwords: [String] = []) {
+        let boost = Self.prepareHotwords(models: models, words: hotwords)
         let transducer = sherpaOnnxOnlineTransducerModelConfig(
             encoder: models.asrEncoder.path,
             decoder: models.asrDecoder.path,
@@ -21,7 +25,9 @@ final class SherpaAsr: NSObject, StreamingAsr {
             tokens: models.asrTokens.path,
             transducer: transducer,
             // 4 threads, like Android (ADR-021): phones are slower than the benchmark PC, so compute matters more.
-            numThreads: 4
+            numThreads: 4,
+            modelingUnit: boost != nil ? "bpe" : "",
+            bpeVocab: boost?.vocab.path ?? ""
         )
         var config = sherpaOnnxOnlineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: Sherpa.sampleRate, featureDim: 80),
@@ -30,10 +36,35 @@ final class SherpaAsr: NSObject, StreamingAsr {
             rule1MinTrailingSilence: 2.4,
             rule2MinTrailingSilence: 0.8,
             rule3MinUtteranceLength: 20,
-            decodingMethod: "greedy_search"
+            decodingMethod: boost != nil ? "modified_beam_search" : "greedy_search",
+            maxActivePaths: 4,
+            hotwordsFile: boost?.file.path ?? "",
+            hotwordsScore: Hotwords.shared.SCORE
         )
         recognizer = SherpaOnnxRecognizer(config: &config)
         super.init()
+    }
+
+    /// Writes the hotwords file and the BPE vocabulary (built from tokens.txt) next to the model,
+    /// or nil when there are no words or the files cannot be written.
+    private static func prepareHotwords(models: ModelFiles, words: [String]) -> (file: URL, vocab: URL)? {
+        let lines = Hotwords.shared.lines(words: words, simplifier: TaiwanChinese.makeSimplifier())
+        guard !lines.isEmpty else { return nil }
+        let vocab = models.directory.appendingPathComponent("asr-bpe-v2.vocab")
+        let file = models.directory.appendingPathComponent("asr-hotwords.txt")
+        do {
+            if !FileManager.default.fileExists(atPath: vocab.path) {
+                let tokens = try String(contentsOf: models.asrTokens, encoding: .utf8)
+                    .components(separatedBy: .newlines)
+                    .compactMap { Hotwords.shared.tokenPiece(line: $0) }
+                try Hotwords.shared.bpeVocab(tokens: tokens).write(to: vocab, atomically: true, encoding: .utf8)
+            }
+            try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+            return (file, vocab)
+        } catch {
+            FileWriter.log.error("hotwords: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     func accept(samples: KotlinFloatArray) {

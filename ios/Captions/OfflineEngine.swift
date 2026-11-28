@@ -25,12 +25,16 @@ final class OfflineEngine {
     let clusterer = IosBridgeKt.createSpeakerClusterer(threshold: OfflineEngine.speakerThreshold)
     let backgroundFilter: Bool
 
-    init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil, registry: VoiceRegistry? = nil, backgroundFilter: Bool = false) {
+    /// The 自訂詞彙 this engine was built with (ADR-038).
+    let hotwords: [String]
+
+    init(models: ModelFiles, speakers: Bool = true, secondPassDirectory: URL? = nil, registry: VoiceRegistry? = nil, backgroundFilter: Bool = false, hotwords: [String] = []) {
         hasSpeakers = speakers
+        self.hotwords = hotwords
         self.backgroundFilter = backgroundFilter
         secondPass = secondPassDirectory.map { SherpaSecondPass(directory: $0) }
         pipeline = IosBridgeKt.createOfflinePipeline(
-            asr: SherpaAsr(models: models),
+            asr: SherpaAsr(models: models, hotwords: hotwords),
             vad: SherpaVad(models: models),
             embedder: speakers ? SherpaEmbedder(models: models) : nil,
             clusterer: clusterer,

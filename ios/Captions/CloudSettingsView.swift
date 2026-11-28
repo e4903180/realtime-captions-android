@@ -82,11 +82,13 @@ struct EnginePickerView: View {
     @ObservedObject private var models: ModelStore
     @ObservedObject private var second: SecondPassStore
     @State private var confirmRemove: String?
+    @State private var words = ""
 
     init(model: CaptionViewModel) {
         self.model = model
         _models = ObservedObject(wrappedValue: model.models)
         _second = ObservedObject(wrappedValue: model.secondPassStore)
+        _words = State(initialValue: model.vocabulary.joined(separator: "\n"))
     }
     @AppStorage("appearance") private var appearance = "system"
     @Environment(\.dismiss) private var dismiss
@@ -99,6 +101,20 @@ struct EnginePickerView: View {
                     rows(EngineInfo.all.filter { !$0.offline })
                     Button("雲端服務設定（金鑰）") { model.showCloudSettings = true }
                     NavigationLink("雲端用量與費用") { UsageView() }
+                }
+                Section {
+                    TextField("一行一個詞，例如人名、地名、專有名詞", text: $words, axis: .vertical)
+                        .lineLimit(3...6)
+                        .autocorrectionDisabled()
+                    HStack {
+                        Button("儲存") { model.setVocabulary(words); words = model.vocabulary.joined(separator: "\n") }
+                            .disabled(words == model.vocabulary.joined(separator: "\n"))
+                        Spacer()
+                        Text("目前 \(model.vocabulary.count) 個詞").foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                } header: { Text("自訂詞彙") } footer: {
+                    Text("離線和 Azure 雲端都會優先辨識成這些詞，下次按「開始」生效。離線用詞彙時會多用一點電。")
                 }
                 Section {
                     Toggle("說話者辨識", isOn: $model.speakersOn)
