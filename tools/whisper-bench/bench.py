@@ -30,7 +30,8 @@ from opencc import OpenCC
 SR = 16000
 HERE = pathlib.Path(__file__).resolve().parent
 S2TWP = OpenCC("s2twp")
-TAIWAN_FORMS = str.maketrans({"裏": "裡", "着": "著", "麪": "麵"})
+# Same list as OpenCcTaiwan.taiwanForms in desktop/.../Metrics.kt: keep the two in sync.
+TAIWAN_FORMS = str.maketrans({"裏": "裡", "着": "著", "麪": "麵", "爲": "為", "綫": "線", "衆": "眾"})
 FILLERS = {"嗯", "啊", "呃", "欸", "誒", "喔", "哦", "唉", "哎", "噢", "呀", "啦", "嘛", "um", "uh"}
 
 MODELS = {
@@ -209,7 +210,9 @@ def main():
                     "err_stream_nofill": edit([x for x in ref if x not in FILLERS], [x for x in hyp_st if x not in FILLERS]),
                     "ref_nofill": len([x for x in ref if x not in FILLERS]),
                     "ttfp": ttfp, "final": fin, "rtf_offline": off_dt / dur, "rtf_stream": busy / dur,
-                    "text_stream": tw(st_text)[:300],
+                    # Full hypotheses, so results can be re-scored later without re-running the GPU.
+                    "text_stream": tw(st_text), "text_offline": tw(off_text),
+                    "utterances": [{"start": u["start"], "end": u["end"], "text": tw(u["text"])} for u in utts],
                 })
                 print(name, t["id"], f"{time.strftime('%H:%M:%S')}", f"off {rows[-1]['err_offline'] / max(1, len(ref)):.3f}", f"st {rows[-1]['err_stream'] / max(1, len(ref)):.3f}", flush=True)
             del model
