@@ -1,8 +1,29 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing (ADR-037). The key and its passwords live outside git (datasets/release/ is ignored).
+// Point to the properties file with the env var CAPTIONS_KEYSTORE_PROPERTIES or with
+// captions.keystore.properties=<path> in local.properties. Without it, release builds are unsigned
+// (CI keeps working).
+val keystoreProperties: Properties? = run {
+    val local = Properties().apply {
+        rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
+    }
+    val path = System.getenv("CAPTIONS_KEYSTORE_PROPERTIES") ?: local.getProperty("captions.keystore.properties")
+    path?.let(::file)?.takeIf { it.isFile }?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+}
+
+// Each release must have a higher versionCode than the one installed, or Android refuses the update.
+// Pass -PversionCode=N; otherwise the number of commits is used.
+val appVersionCode: Int = (findProperty("versionCode") as String?)?.toInt() ?: runCatching {
+    val p = ProcessBuilder("git", "rev-list", "--count", "HEAD").directory(rootDir).redirectErrorStream(true).start()
+    p.inputStream.bufferedReader().readText().trim().toInt().also { p.waitFor() }
+}.getOrDefault(1)
 
 android {
     namespace = "tw.captions.app"
@@ -12,8 +33,8 @@ android {
         applicationId = "tw.captions.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = "0.2.$appVersionCode"
 
         ndk {
             // Phones (arm64) and the emulator (x86_64). Keeps the sherpa-onnx native libraries small.
@@ -21,9 +42,22 @@ android {
         }
     }
 
+    signingConfigs {
+        keystoreProperties?.let { k ->
+            create("release") {
+                storeFile = file(k.getProperty("storeFile"))
+                storePassword = k.getProperty("storePassword")
+                keyAlias = k.getProperty("keyAlias")
+                keyPassword = k.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // No R8 yet: it would need keep rules for sherpa-onnx (JNI), the Azure SDK and the Anthropic SDK.
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -84,4 +118,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation("junit:junit:4.13.2")
+}
+
+// Release APKs for phones carry only the arm64 native libraries (about half the size).
+// -PwithX86=true keeps x86_64 too, to try a release build on the emulator.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        if (findProperty("withX86") != "true") variant.packaging.jniLibs.excludes.add("lib/x86_64/**")
+    }
 }
