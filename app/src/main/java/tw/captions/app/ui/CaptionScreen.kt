@@ -75,7 +75,7 @@ fun CaptionScreen(
                 .safeDrawingPadding(),
         ) {
             Box(Modifier.weight(1f)) {
-                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize().padding(top = 48.dp), onNameLine)
+                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize().padding(top = 48.dp)) else Captions(ui, Modifier.fillMaxSize().padding(top = 48.dp), onNameLine)
                 // 看電視 toggle, top right (same place as on iPhone, ADR-032).
                 FilterChip(
                     selected = ui.tvMode,
@@ -152,7 +152,7 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
     val hasCurrent = captions.stableText.isNotEmpty() || captions.tentativeText.isNotEmpty()
     val itemCount = captions.lines.size + if (hasCurrent) 1 else 0
 
-    FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
+    val (following, toNewest) = FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
 
     val fontSize = ui.fontSizeSp.sp
     val lineHeight = (ui.fontSizeSp * 1.3f).sp
@@ -168,10 +168,11 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
         return
     }
 
+    Box(modifier.fillMaxWidth()) {
     LazyColumn(
         state = listState,
-        modifier = modifier
-            .fillMaxWidth()
+        modifier = Modifier
+            .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -210,22 +211,44 @@ private fun Captions(ui: UiState, modifier: Modifier, onNameLine: (Int, String) 
             }
         }
     }
+    BackToNewest(!following, toNewest, Modifier.align(Alignment.BottomCenter))
+    }
 }
 
 /**
  * Keeps the list on the newest text, unless the reader has scrolled back to read older lines; it
- * follows again once they scroll back down to the end.
+ * follows again once they scroll back down to the end (or tap 回到最新). Returns whether it is
+ * following, and a way to jump back.
+ *
+ * Following stops the moment the reader touches the list: new partial results arrive several
+ * times a second, and scrolling to the end then would cancel the reader's drag before it moves.
  */
 @Composable
-private fun FollowNewest(listState: androidx.compose.foundation.lazy.LazyListState, itemCount: Int, stable: String, tentative: String) {
+private fun FollowNewest(listState: androidx.compose.foundation.lazy.LazyListState, itemCount: Int, stable: String, tentative: String): Pair<Boolean, () -> Unit> {
     var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
+    var jumps by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
     LaunchedEffect(listState) {
         androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling -> if (!scrolling) follow = !listState.canScrollForward }
+            .collect { scrolling -> follow = !scrolling && !listState.canScrollForward }
     }
-    LaunchedEffect(itemCount, stable, tentative) {
-        if (follow && itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+    LaunchedEffect(itemCount, stable, tentative, jumps) {
+        if ((follow || jumps > 0) && itemCount > 0 && !listState.isScrollInProgress) {
+            listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+            if (jumps > 0) { jumps = 0; follow = true }
+        }
     }
+    return follow to { jumps++ }
+}
+
+/** Shown while the reader looks at older lines: one tap goes back to the newest text. */
+@Composable
+private fun BackToNewest(visible: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    if (!visible) return
+    Button(
+        onClick = onClick,
+        modifier = modifier.padding(12.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+    ) { Text("↓ 回到最新", fontSize = 18.sp) }
 }
 
 /**
@@ -239,7 +262,7 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
     val itemCount = captions.lines.size + if (hasCurrent) 1 else 0
     val size = (ui.fontSizeSp * 1.25f)
     val listState = rememberLazyListState()
-    FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
+    val (following, toNewest) = FollowNewest(listState, itemCount, captions.stableText, captions.tentativeText)
 
     if (itemCount == 0) {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -248,9 +271,10 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
         return
     }
 
+    Box(modifier.fillMaxWidth()) {
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -278,6 +302,8 @@ private fun TvCaptions(ui: UiState, modifier: Modifier) {
                 )
             }
         }
+    }
+    BackToNewest(!following, toNewest, Modifier.align(Alignment.BottomCenter))
     }
 }
 
