@@ -195,7 +195,7 @@
 - **背景：** 音量過濾不可靠（ADR-020），使用者同意「認聲音」：讓 App 認得身邊的人。
 - **決定：** 長按字幕指定說話者名字，用該句的 CAM++ 聲音特徵登記（同名會合併，相似度 ≥ 0.5 算同一人）。有登記的人之後，不符合任何人的句子當成背景；第一次登記時，背景過濾若是「關」會自動改成「淡化」。聲音特徵只存在手機，可在「認得的人」清單忘記。
 - **理由：** 只有電視雜訊時假字幕 43 → 2 句、人聲嘈雜 38 → 1 句（`docs/benchmark-voices.md`）。乾淨對話會誤判部分真句子（8% → 12%），所以預設淡化不隱藏。
-- **其他選項：** 只用音量（ADR-020）；自動把第一個說話者當主人（家人輪流說話時會錯）。
+- **其他選項：** 只用音量（ADR-020）；自動把第一個說話者當主人（多人輪流說話時會錯）。
 - **後果：** 沒登記任何人時行為和以前一樣。
 
 ## ADR-023 iPhone 版加入 Azure 雲端引擎與引擎選單
@@ -323,13 +323,13 @@
 - **驗證：** 模擬器 Pixel 8 家庭晚餐：A B C A B C，字母 0 次變更；不清除再跑一次，新的一輪同樣正確、舊句子不動。數字見 docs/benchmark-speakers.md。
 
 
-## ADR-037 給家人用的 Android 正式版：自己簽章的 APK
+## ADR-037 Android 正式版：自己簽章的 APK
 
 - **日期：** 2026-11-28
-- **背景：** tony 要讓家人使用 Android 版。Google Play 需要開發者帳號（US$25）和審核，先求今天能用。
-- **決定：** 用一把正式簽章金鑰（RSA 4096，效期約 33 年，PKCS12）編正式版 APK，tony 用 LINE 或雲端硬碟傳給家人安裝。金鑰和隨機密碼放在 `datasets/release/`（git 忽略），Gradle 從 `CAPTIONS_KEYSTORE_PROPERTIES` 環境變數或 `local.properties` 的 `captions.keystore.properties` 讀取；沒有這個檔案時正式版不簽章，CI 不受影響。versionCode 預設是 git commit 數（也可用 `-PversionCode`），保證新版可以覆蓋安裝。正式版只放 arm64 的原生函式庫（`-PwithX86=true` 才加 x86_64，給模擬器測試）。先不開 R8，避免 sherpa-onnx（JNI）、Azure、Anthropic SDK 被裁掉。偵錯用的音檔輸入和金鑰匯入只在 debug 版有效。
+- **背景：** 要讓其他人也能安裝 Android 版。Google Play 需要開發者帳號（US$25）和審核，先求今天能用。
+- **決定：** 用一把正式簽章金鑰（RSA 4096，效期約 33 年，PKCS12）編正式版 APK，直接傳 APK 或提供下載連結安裝。金鑰和隨機密碼放在 `datasets/release/`（git 忽略），Gradle 從 `CAPTIONS_KEYSTORE_PROPERTIES` 環境變數或 `local.properties` 的 `captions.keystore.properties` 讀取；沒有這個檔案時正式版不簽章，CI 不受影響。versionCode 預設是 git commit 數（也可用 `-PversionCode`），保證新版可以覆蓋安裝。正式版只放 arm64 的原生函式庫（`-PwithX86=true` 才加 x86_64，給模擬器測試）。先不開 R8，避免 sherpa-onnx（JNI）、Azure、Anthropic SDK 被裁掉。偵錯用的音檔輸入和金鑰匯入只在 debug 版有效。
 - **其他選項：** Google Play 內部測試（會自動更新，之後再做）；debug 版 APK（每台電腦的簽章不同，無法互相覆蓋更新）。
-- **後果：** 金鑰遺失就不能再更新已安裝的 App（家人要先移除再裝，資料會不見），所以 tony 要另外備份 `datasets/release/`。之後上架 Play 可以用同一把金鑰。家人安裝說明見 docs/install-android.md。
+- **後果：** 金鑰遺失就不能再更新已安裝的 App（要先移除再裝，資料會不見），所以 tony 要另外備份 `datasets/release/`。之後上架 Play 可以用同一把金鑰。安裝說明見 docs/install-android.md。
 
 ## ADR-038 離線引擎使用自訂詞彙（熱詞）
 

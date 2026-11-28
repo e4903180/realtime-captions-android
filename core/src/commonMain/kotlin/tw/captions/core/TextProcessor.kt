@@ -80,7 +80,7 @@ object ChinesePunctuation : TextStep {
     }
 }
 
-/** User dictionary for words the engine keeps getting wrong (e.g. family names). */
+/** User dictionary for words the engine keeps getting wrong (e.g. people's names). */
 class CorrectionDictionary(corrections: Map<String, String>) : TextStep {
     // Longest keys first so that longer phrases win over their substrings.
     private val entries = corrections.entries
