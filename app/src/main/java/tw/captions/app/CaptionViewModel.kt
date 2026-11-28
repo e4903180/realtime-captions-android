@@ -94,6 +94,12 @@ data class UiState(
     val today: String = "",
     /** The monthly cloud limit was reached and captions switched to the offline engine. */
     val usageLimitHit: Boolean = false,
+    /** With [usageLimitHit]: the offline models are not on the phone, so captions stopped instead (no silent 160 MB download). */
+    val limitNeedsOfflineModels: Boolean = false,
+    /** Another app (a call, a recorder) has the microphone; this app only gets silence. */
+    val micSilenced: Boolean = false,
+    /** Paused by itself after a long time without speech (the cloud stops billing too). */
+    val idlePaused: Boolean = false,
 )
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -104,6 +110,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Azure accepts a few hundred phrases; more also stops helping. */
         const val MAX_VOCABULARY = 200
+
+        /** Pause by itself after this long without speech (battery, and cloud billing). */
+        const val IDLE_PAUSE_MS = 10 * 60 * 1000L
     }
 
     private val models = ModelStore(app)
@@ -131,7 +140,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private fun openMic() = MicInput(
         preferred = tw.captions.app.engine.Microphones.find(getApplication(), _ui.value.micType),
         noiseSuppression = _ui.value.systemNoiseSuppression,
-    )
+    ).also { micSessionId = it.audioSessionId }
 
     private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
 
@@ -181,6 +190,92 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         UiState(engineId = prefs.getString("engine", null)?.takeIf { id -> engines.any { it.id == id } } ?: EngineCatalog.DEFAULT_ID),
     )
     val ui: StateFlow<UiState> = _ui.asStateFlow()
+
+    /** Microphone level 0..1, separate from [ui] so the level meter does not redraw the whole screen. */
+    private val _audioLevel = MutableStateFlow(0f)
+    val audioLevel: StateFlow<Float> = _audioLevel.asStateFlow()
+
+    /** A short buzz for things the reader may not be looking at: captions stopped, engine switched, microphone taken. */
+    private fun vibrate() {
+        runCatching {
+            val app = getApplication<Application>()
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                app.getSystemService(android.os.VibratorManager::class.java).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION") app.getSystemService(android.os.Vibrator::class.java)
+            }
+            vibrator?.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+        }
+    }
+
+    // ---- Microphone taken by another app (a call, a recorder): API 29+ tells us we only get silence ----
+
+    @Volatile private var micSessionId = 0
+    private val audioManager = app.getSystemService(android.media.AudioManager::class.java)
+    private var watchingMic = false
+    private val recordingCallback = object : android.media.AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>) = checkMicSilenced(configs)
+    }
+
+    private fun checkMicSilenced(configs: List<android.media.AudioRecordingConfiguration>) {
+        if (android.os.Build.VERSION.SDK_INT < 29) return
+        val id = micSessionId
+        val silenced = job != null && id != 0 && configs.any { it.clientAudioSessionId == id && it.isClientSilenced }
+        if (silenced == _ui.value.micSilenced) return
+        _ui.update { it.copy(micSilenced = silenced) }
+        if (silenced) vibrate()
+    }
+
+    private fun watchMic(on: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT < 29 || on == watchingMic) return
+        watchingMic = on
+        if (on) {
+            audioManager.registerAudioRecordingCallback(recordingCallback, android.os.Handler(android.os.Looper.getMainLooper()))
+        } else {
+            audioManager.unregisterAudioRecordingCallback(recordingCallback)
+            micSessionId = 0
+            _ui.update { it.copy(micSilenced = false) }
+        }
+    }
+
+    // ---- 停止 from the notification ----
+
+    private val stopReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) = stopByUser()
+    }
+
+    init {
+        androidx.core.content.ContextCompat.registerReceiver(
+            app, stopReceiver, android.content.IntentFilter(ListeningService.ACTION_STOP), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    // ---- Idle auto-pause: nobody spoke for a long time ----
+
+    private var lastSpeechMs = 0L
+    private var idleTimer: Job? = null
+
+    private fun watchIdle() {
+        lastSpeechMs = android.os.SystemClock.elapsedRealtime()
+        idleTimer?.cancel()
+        idleTimer = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                if (android.os.SystemClock.elapsedRealtime() - lastSpeechMs >= IDLE_PAUSE_MS) {
+                    _ui.update { it.copy(idlePaused = true) }
+                    vibrate()
+                    stop()
+                    return@launch
+                }
+            }
+        }
+    }
+
+    /** The 繼續 button after an idle pause. */
+    fun resumeAfterIdle() {
+        _ui.update { it.copy(idlePaused = false) }
+        start()
+    }
 
     /**
      * Every UI update goes through here: when the caption lines change, their ids are taken from
@@ -344,8 +439,20 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Over the monthly limit: pause the cloud for now and continue with the offline engine (not saved as the user's choice). */
     private fun switchToOfflineForLimit() {
         stop()
-        _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, usageLimitHit = true) }
+        vibrate()
+        if (!offlineReady()) {
+            // Never start a 160 MB download by itself: stop and let the user decide.
+            _ui.update { it.copy(usageLimitHit = true, limitNeedsOfflineModels = true) }
+            return
+        }
+        _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, usageLimitHit = true, limitNeedsOfflineModels = false) }
         start()
+    }
+
+    /** From the limit notice when the offline models are missing: download them, then continue offline. */
+    fun downloadOfflineAfterLimit() {
+        _ui.update { it.copy(usageLimitHit = false, limitNeedsOfflineModels = false, engineId = EngineCatalog.DEFAULT_ID) }
+        download(EngineCatalog.DEFAULT_ID, startAfter = true)
     }
 
     private fun offlineReady() = offlineEngines.firstOrNull { it.id == EngineCatalog.DEFAULT_ID }?.let { models.isInstalled(it.packs) } == true
@@ -354,6 +461,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private fun switchToOfflineForOutage(reason: String) {
         if (!isPaid(_ui.value.engineId)) return
         stop()
+        vibrate()
         _ui.update { it.copy(engineId = EngineCatalog.DEFAULT_ID, cloudNotice = "$reason。先改用離線辨識，按停止再開始會重新連雲端。") }
         start()
     }
@@ -361,7 +469,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** From the limit notice: go back to the cloud engine and stop asking until the user presses stop. */
     fun continueCloudAnyway() {
         limitOverridden = true
-        _ui.update { it.copy(usageLimitHit = false) }
+        _ui.update { it.copy(usageLimitHit = false, limitNeedsOfflineModels = false) }
         selectEngine(AzureSpeechEngine.ID)
         if (job == null) start()
     }
@@ -379,7 +487,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissLimitNotice() {
-        _ui.update { it.copy(usageLimitHit = false) }
+        _ui.update { it.copy(usageLimitHit = false, limitNeedsOfflineModels = false) }
     }
 
     fun setUsagePrices(prices: tw.captions.core.CloudUsage.Prices) {
@@ -592,6 +700,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeAnthropicKey() {
         vault.remove(KeyVault.ANTHROPIC_KEY)
+        Proof.close()
         proofTimer?.cancel()
         _ui.update { it.copy(anthropicTestMessage = null, proofreadNotice = null) }
         refreshKeys()
@@ -677,9 +786,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             switchToOfflineForLimit()
             return
         }
-        _ui.update { it.copy(running = true) }
+        _ui.update { it.copy(running = true, idlePaused = false, captions = it.captions.copy(error = null)) }
         sessionActive = true
         beginTranscript(engine.id)
+        watchIdle()
+        if (debugWav == null) watchMic(true)
         if (EngineCatalog.byId(engine.id)?.paid == true) {
             cloudTimer?.cancel()
             cloudTimer = viewModelScope.launch {
@@ -704,9 +815,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         val now = android.os.SystemClock.elapsedRealtime()
                         if (now - lastLevelAt >= 66) {
                             lastLevelAt = now
-                            _ui.update { it.copy(captions = state) }
+                            _audioLevel.value = state.audioLevel
                         }
                         return@collect
+                    }
+                    if ((event is tw.captions.core.TranscriptEvent.Partial && event.text.isNotBlank()) || event is tw.captions.core.TranscriptEvent.Final) {
+                        lastSpeechMs = android.os.SystemClock.elapsedRealtime()
                     }
                     if (event is tw.captions.core.TranscriptEvent.Error && isPaid(engine.id) && !event.message.contains("金鑰") && offlineReady()) {
                         // No network or the service is down: keep captions going with the offline engine.
@@ -728,10 +842,17 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         scheduleProofreading()
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A bug or a native failure in an engine: say so and stop cleanly instead of crashing.
+                Log.e("Captions", "engine failed", e)
+                _ui.update { it.copy(captions = it.captions.copy(error = "辨識發生錯誤，字幕已停止。請再按一次開始。")) }
             } finally {
                 // The engine stopped by itself (e.g. a fatal error), not via stop().
                 if (job === self) {
                     job = null
+                    if (_ui.value.captions.error != null) vibrate()
                     markStopped()
                 }
             }
@@ -798,6 +919,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** The screen is gone for good (app closed): end the session so usage and the transcript are saved. */
     override fun onCleared() {
         stop()
+        runCatching { getApplication<Application>().unregisterReceiver(stopReceiver) }
+        Proof.close()
         ListeningService.stop(getApplication())
         super.onCleared()
     }
@@ -815,6 +938,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun markStopped() {
         cloudTimer?.cancel()
+        idleTimer?.cancel()
+        watchMic(false)
+        _audioLevel.value = 0f
         flushUsage()
         if (sessionActive) {
             sessionActive = false
