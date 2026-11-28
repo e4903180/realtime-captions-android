@@ -44,11 +44,14 @@ struct CaptionView: View {
     @AppStorage(Proofreader.enabledKey) private var proofreadOn = false
     /// 看電視模式 (ADR-032): only the newest few lines, large and centred, no speaker tags.
     @AppStorage("tvMode") private var tvMode = false
+    /// Scrolls along with new lines; off while the user reads back.
+    @State private var following = true
+    @State private var lastEdge: BottomEdge?
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            if tvMode { tvCaptions } else { captions }
+            captions
             status
             controls
         }
@@ -100,30 +103,6 @@ struct CaptionView: View {
         .sheet(item: $naming) { line in NameSpeakerView(model: model, line: line) }
     }
 
-    /// Like subtitles on a TV: the newest lines at the bottom, nothing to scroll.
-    private var tvCaptions: some View {
-        let size = CGFloat(model.fontSize) * 1.25
-        let live = !model.stableText.isEmpty || !model.tentativeText.isEmpty
-        let shown = Array(model.lines.suffix(live && !model.continuesLastLine ? 2 : 3))
-        return VStack(spacing: size * 0.35) {
-            Spacer(minLength: 0)
-            if model.lines.isEmpty && !live {
-                Text(model.running ? "正在聽…" : "看電視模式：手機放在電視旁，按「開始」")
-                    .font(.system(size: 24)).foregroundColor(tentativeColor)
-            }
-            ForEach(shown) { line in
-                let current = model.continuesLastLine && line.id == model.lines.last?.id
-                tvLine(line.text, current: current, size: size)
-                    .opacity(current || line.id == shown.last?.id ? 1 : 0.7)
-            }
-            if live && !model.continuesLastLine { tvLine(nil, current: true, size: size) }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .clipped()
-    }
-
     private func tvLine(_ text: String?, current: Bool, size: CGFloat) -> some View {
         Group {
             if current {
@@ -142,40 +121,91 @@ struct CaptionView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// The whole session, scrollable. It follows the newest line until the user scrolls up, and
+    /// follows again once they scroll back to the bottom (both modes; TV mode is larger and centred).
     private var captions: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // A plain VStack: LazyVStack estimates the height of lines it has not laid out,
-                // which made the list jump while scrolling to the newest line (at most 200 lines).
-                VStack(alignment: .leading, spacing: 14) {
-                    if model.lines.isEmpty && model.stableText.isEmpty && model.tentativeText.isEmpty {
-                        Text(model.running ? "正在聽…" : "按下「開始」，說話會即時顯示在這裡")
-                            .font(.system(size: 24))
-                            .foregroundColor(tentativeColor)
-                            .padding(.top, 24)
-                    }
-                    ForEach(model.lines) { line in
-                        let continued = model.continuesLastLine && line.id == model.lines.last?.id
-                        lineView(line.text, speaker: line.speaker, current: continued)
+        let tvSize = CGFloat(model.fontSize) * 1.25
+        let live = !model.stableText.isEmpty || !model.tentativeText.isEmpty
+        return GeometryReader { outer in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    // A plain VStack: LazyVStack estimates the height of lines it has not laid out,
+                    // which made the list jump while scrolling to the newest line (at most 200 lines).
+                    VStack(alignment: tvMode ? .center : .leading, spacing: tvMode ? tvSize * 0.35 : 14) {
+                        if model.lines.isEmpty && !live {
+                            Text(model.running ? "正在聽…" : tvMode ? "看電視模式：手機放在電視旁，按「開始」" : "按下「開始」，說話會即時顯示在這裡")
+                                .font(.system(size: 24))
+                                .foregroundColor(tentativeColor)
+                                .padding(.top, 24)
+                        }
+                        ForEach(model.lines) { line in
+                            let continued = model.continuesLastLine && line.id == model.lines.last?.id
+                            Group {
+                                if tvMode {
+                                    // Older lines fade, like subtitles that already went by.
+                                    tvLine(line.text, current: continued, size: tvSize)
+                                        .opacity(continued || (!live && line.id == model.lines.last?.id) ? 1 : 0.6)
+                                } else {
+                                    lineView(line.text, speaker: line.speaker, current: continued)
+                                }
+                            }
                             .opacity(line.background || (continued && model.currentBackground) ? 0.45 : 1)
                             .contentShape(Rectangle())
-                            .onLongPressGesture { if model.speakersOn { naming = line } }
-                    }
-                    if !model.continuesLastLine && (!model.stableText.isEmpty || !model.tentativeText.isEmpty) {
-                        lineView(nil, speaker: model.currentSpeaker, current: true)
+                            .onLongPressGesture { if model.speakersOn && !tvMode { naming = line } }
+                        }
+                        if !model.continuesLastLine && live {
+                            Group {
+                                if tvMode { tvLine(nil, current: true, size: tvSize) } else { lineView(nil, speaker: model.currentSpeaker, current: true) }
+                            }
                             .opacity(model.currentBackground ? 0.45 : 1)
+                        }
+                        Color.clear.frame(height: 1).id("bottom")
                     }
-                    Color.clear.frame(height: 1).id("bottom")
+                    .background(GeometryReader { g in
+                        let f = g.frame(in: .named("captions"))
+                        Color.clear.preference(key: BottomEdgeKey.self, value: BottomEdge(maxY: f.maxY, height: f.height))
+                    })
+                    .frame(maxWidth: .infinity, alignment: tvMode ? .center : .leading)
+                    .frame(minHeight: tvMode ? outer.size.height - 24 : 0, alignment: .bottom)
+                    .padding(.horizontal, tvMode ? 20 : 16)
+                    .padding(.vertical, 12)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            // One scroll per change, without animation, so the text does not bounce.
-            .onChange(of: scrollKey) { _ in
-                var t = Transaction()
-                t.disablesAnimations = true
-                withTransaction(t) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .coordinateSpace(name: "captions")
+                // The list moved while its content kept its size: that was the user scrolling.
+                // Scrolled away from the bottom stops following; back at the bottom follows again.
+                // (New lines change the size and are followed by the scroll below.)
+                .onPreferenceChange(BottomEdgeKey.self) { edge in
+                    defer { lastEdge = edge }
+                    guard let last = lastEdge, abs(last.height - edge.height) < 0.5 else { return }
+                    following = edge.maxY <= outer.size.height + 40
+                }
+                // One scroll per change, without animation, so the text does not bounce.
+                .onChange(of: scrollKey) { _ in
+                    guard following else { return }
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .onChange(of: tvMode) { _ in
+                    following = true
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !following {
+                        Button {
+                            following = true
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        } label: {
+                            Label("最新", systemImage: "arrow.down")
+                                .font(.system(size: 16, weight: .semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(barColor, in: Capsule())
+                                .foregroundColor(textColor)
+                        }
+                        .padding(16)
+                        .accessibilityLabel("回到最新的字幕")
+                    }
+                }
             }
         }
     }
@@ -286,4 +316,15 @@ private struct LevelMeter: View {
         .frame(width: 36, height: 36)
         .accessibilityLabel(active ? "收音中" : "未收音")
     }
+}
+
+/// Where the caption list's bottom edge is in its scroll view, and how tall the list is.
+private struct BottomEdge: Equatable {
+    var maxY: CGFloat
+    var height: CGFloat
+}
+
+private struct BottomEdgeKey: PreferenceKey {
+    static var defaultValue = BottomEdge(maxY: 0, height: 0)
+    static func reduce(value: inout BottomEdge, nextValue: () -> BottomEdge) { value = nextValue() }
 }
