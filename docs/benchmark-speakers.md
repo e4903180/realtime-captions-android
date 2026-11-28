@@ -71,9 +71,137 @@
 
 TTS 對話沒有跨輪次和短句，所以修改前後在同一門檻下的數字幾乎相同；差別主要來自門檻。
 
-## 真實錄音（datasets/prepared，--quick）
+## 真實錄音（datasets/prepared）
 
-量測中，完成後補上。
+設定與 Android App 相同：0.6 秒斷句、接行、20 毫秒、4 核心。`--quick` 每個資料集取 3 個多人檔案。aishell1 和 cvtw 是兩人輪流朗讀，cvtw 為台灣口音；alimeeting 是 4 人會議。
+
+### 結論
+
+- **沒有一個固定門檻能兼顧：**
+  - 台灣 cvtw：0.45 最好（修改後 86.4%）；0.60 會把人拆開（66.3%，找到 5.3 人，實際 2 人）。
+  - aishell：0.45 會把兩人併成一人（67.3%）；0.60 正確（98.9%）。
+  - TTS 對話則是 0.60 較好（見上方）。
+- **給定人數兩邊都最好：** cvtw 96.3%、aishell 98.8%，cvtw 上字幕顯示後字母沒有再被改。
+- **只用即時分群：** cvtw 85.1%、aishell 98.8%，字母從不改變。
+- **修改後 core 有效：** 就算門檻寬鬆，已顯示的字母也比較少被改。
+- **alimeeting 會議（4 人）：** 從修改前約 40% 降到約 28%。兩次之間同時改了兩件事，所以分不出是哪一件造成的：
+  - 太短沒有聲紋的句子不再沿用上一個人的字母，算成沒有字母；
+  - 音量背景過濾的預設從 8 dB 改成關。
+  - 要另外各自量。
+
+### 修改前（舊 core，App 模式 bench）
+
+| Setup | Dataset | Files | Speaker accuracy | Speakers found / true (avg) | Letter changes on shown lines (per file) |
+|---|---|---|---|---|---|
+| Live only | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| Live only | alimeeting | 3 | 40.7% | 4.7 / 4.0 | 0.0 |
+| Live only | cvtw | 3 | 86.8% | 2.3 / 2.0 | 0.0 |
+| End regroup 0.45 | aishell1 | 3 | 67.2% | 1.3 / 2.0 | 0.0 |
+| End regroup 0.45 | alimeeting | 3 | 37.7% | 6.0 / 4.0 | 0.0 |
+| End regroup 0.45 | cvtw | 3 | 92.1% | 2.3 / 2.0 | 0.0 |
+| App regroup 0.45 | aishell1 | 3 | 67.3% | 1.3 / 2.0 | 0.7 |
+| App regroup 0.45 | alimeeting | 3 | 38.2% | 7.0 / 4.0 | 6.3 |
+| App regroup 0.45 | cvtw | 3 | 92.3% | 2.3 / 2.0 | 0.7 |
+| End regroup 0.55 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.55 | alimeeting | 3 | 41.3% | 7.3 / 4.0 | 0.0 |
+| End regroup 0.55 | cvtw | 3 | 75.1% | 4.3 / 2.0 | 0.0 |
+| App regroup 0.55 | aishell1 | 3 | 98.7% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.55 | alimeeting | 3 | 40.5% | 9.7 / 4.0 | 59.7 |
+| App regroup 0.55 | cvtw | 3 | 74.2% | 4.3 / 2.0 | 1.0 |
+| End regroup 0.6 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.6 | alimeeting | 3 | 38.8% | 7.7 / 4.0 | 0.0 |
+| End regroup 0.6 | cvtw | 3 | 67.5% | 5.7 / 2.0 | 0.0 |
+| App regroup 0.6 | aishell1 | 3 | 98.9% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.6 | alimeeting | 3 | 38.9% | 11.3 / 4.0 | 18.7 |
+| App regroup 0.6 | cvtw | 3 | 67.5% | 5.3 / 2.0 | 0.0 |
+| End regroup 0.65 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.65 | alimeeting | 3 | 37.0% | 11.0 / 4.0 | 0.0 |
+| End regroup 0.65 | cvtw | 3 | 68.5% | 6.0 / 2.0 | 0.0 |
+| App regroup 0.65 | aishell1 | 3 | 98.9% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.65 | alimeeting | 3 | 37.4% | 13.0 / 4.0 | 13.0 |
+| App regroup 0.65 | cvtw | 3 | 68.3% | 6.0 / 2.0 | 0.0 |
+| End regroup 0.7 | aishell1 | 3 | 98.7% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.7 | alimeeting | 3 | 35.5% | 14.7 / 4.0 | 0.0 |
+| End regroup 0.7 | cvtw | 3 | 61.3% | 6.7 / 2.0 | 0.0 |
+| App regroup 0.7 | aishell1 | 3 | 98.6% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.7 | alimeeting | 3 | 34.6% | 21.0 / 4.0 | 6.3 |
+| App regroup 0.7 | cvtw | 3 | 60.4% | 6.3 / 2.0 | 0.3 |
+| App regroup 0.55, number of people given | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.55, number of people given | alimeeting | 3 | 42.4% | 4.3 / 4.0 | 11.3 |
+| App regroup 0.55, number of people given | cvtw | 3 | 96.3% | 2.3 / 2.0 | 0.0 |
+
+### 修改後（ADR-036 的 core）
+
+| Setup | Dataset | Files | Speaker accuracy | Speakers found / true (avg) | Letter changes on shown lines (per file) |
+|---|---|---|---|---|---|
+| Live only | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| Live only | alimeeting | 3 | 28.7% | 4.7 / 4.0 | 0.0 |
+| Live only | cvtw | 3 | 85.1% | 2.3 / 2.0 | 0.0 |
+| End regroup 0.45 | aishell1 | 3 | 67.2% | 1.3 / 2.0 | 0.0 |
+| End regroup 0.45 | alimeeting | 3 | 26.6% | 4.7 / 4.0 | 0.0 |
+| End regroup 0.45 | cvtw | 3 | 92.1% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.45 | aishell1 | 3 | 67.3% | 1.3 / 2.0 | 0.7 |
+| App regroup 0.45 | alimeeting | 3 | 26.9% | 7.0 / 4.0 | 14.7 |
+| App regroup 0.45 | cvtw | 3 | 86.4% | 2.3 / 2.0 | 0.3 |
+| End regroup 0.55 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.55 | alimeeting | 3 | 28.2% | 5.7 / 4.0 | 0.0 |
+| End regroup 0.55 | cvtw | 3 | 84.4% | 3.3 / 2.0 | 0.0 |
+| App regroup 0.55 | aishell1 | 3 | 98.7% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.55 | alimeeting | 3 | 27.0% | 11.3 / 4.0 | 12.7 |
+| App regroup 0.55 | cvtw | 3 | 77.5% | 4.3 / 2.0 | 0.7 |
+| End regroup 0.6 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.6 | alimeeting | 3 | 27.8% | 4.7 / 4.0 | 0.0 |
+| End regroup 0.6 | cvtw | 3 | 79.7% | 4.0 / 2.0 | 0.0 |
+| App regroup 0.6 | aishell1 | 3 | 98.9% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.6 | alimeeting | 3 | 25.9% | 12.3 / 4.0 | 18.0 |
+| App regroup 0.6 | cvtw | 3 | 66.3% | 5.3 / 2.0 | 0.3 |
+| End regroup 0.65 | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.65 | alimeeting | 3 | 27.5% | 6.0 / 4.0 | 0.0 |
+| End regroup 0.65 | cvtw | 3 | 82.5% | 4.0 / 2.0 | 0.0 |
+| App regroup 0.65 | aishell1 | 3 | 98.9% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.65 | alimeeting | 3 | 25.4% | 15.0 / 4.0 | 26.0 |
+| App regroup 0.65 | cvtw | 3 | 66.1% | 6.0 / 2.0 | 0.7 |
+| End regroup 0.7 | aishell1 | 3 | 98.7% | 2.0 / 2.0 | 0.0 |
+| End regroup 0.7 | alimeeting | 3 | 27.3% | 5.3 / 4.0 | 0.0 |
+| End regroup 0.7 | cvtw | 3 | 78.7% | 4.3 / 2.0 | 0.0 |
+| App regroup 0.7 | aishell1 | 3 | 98.6% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.7 | alimeeting | 3 | 24.2% | 21.0 / 4.0 | 29.7 |
+| App regroup 0.7 | cvtw | 3 | 58.1% | 6.3 / 2.0 | 1.0 |
+| App regroup 0.55, number of people given | aishell1 | 3 | 98.8% | 2.0 / 2.0 | 0.0 |
+| App regroup 0.55, number of people given | alimeeting | 3 | 26.9% | 4.0 / 4.0 | 8.0 |
+| App regroup 0.55, number of people given | cvtw | 3 | 96.3% | 2.0 / 2.0 | 0.0 |
+
+### 全量（舊 core、舊 bench：只在檔案最後重新分組一次）
+
+aishell1 16 個、alimeeting 8 個、cvtw 16 個；欄位：說話者正確率、找到人數／實際人數。
+
+| Setup | Dataset | Files | Speaker accuracy | Speakers found / true (avg) |
+|---|---|---|---|---|
+| Live only (now) | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Live only (now) | alimeeting | 8 | 55.2% | 4.1 / 3.1 |
+| Live only (now) | cvtw | 16 | 90.6% | 2.3 / 2.0 |
+| Regroup, threshold 0.35 | aishell1 | 16 | 58.0% | 1.1 / 2.0 |
+| Regroup, threshold 0.35 | alimeeting | 8 | 55.7% | 3.9 / 3.1 |
+| Regroup, threshold 0.35 | cvtw | 16 | 97.9% | 2.0 / 2.0 |
+| Regroup, threshold 0.45 | aishell1 | 16 | 90.5% | 1.8 / 2.0 |
+| Regroup, threshold 0.45 | alimeeting | 8 | 55.3% | 5.0 / 3.1 |
+| Regroup, threshold 0.45 | cvtw | 16 | 93.8% | 2.3 / 2.0 |
+| Regroup, threshold 0.55 | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Regroup, threshold 0.55 | alimeeting | 8 | 56.1% | 7.1 / 3.1 |
+| Regroup, threshold 0.55 | cvtw | 16 | 84.5% | 3.5 / 2.0 |
+| Regroup, threshold 0.60 | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Regroup, threshold 0.60 | alimeeting | 8 | 54.2% | 7.5 / 3.1 |
+| Regroup, threshold 0.60 | cvtw | 16 | 79.9% | 4.3 / 2.0 |
+| Regroup, threshold 0.65 | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Regroup, threshold 0.65 | alimeeting | 8 | 52.8% | 10.8 / 3.1 |
+| Regroup, threshold 0.65 | cvtw | 16 | 70.6% | 5.1 / 2.0 |
+| Regroup, threshold 0.70 | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Regroup, threshold 0.70 | alimeeting | 8 | 51.7% | 13.4 / 3.1 |
+| Regroup, threshold 0.70 | cvtw | 16 | 58.6% | 7.1 / 2.0 |
+| Regroup, number of people given | aishell1 | 16 | 99.3% | 2.0 / 2.0 |
+| Regroup, number of people given | alimeeting | 8 | 51.5% | 4.0 / 3.1 |
+| Regroup, number of people given | cvtw | 16 | 97.9% | 2.0 / 2.0 |
+
 
 ## 模擬器（Pixel 8，debug wav 家庭晚餐，正確 A B C A B C）
 
