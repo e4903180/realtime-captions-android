@@ -84,7 +84,7 @@ class SherpaOnnxEngine(
             emit(TranscriptEvent.Error("離線模型還沒下載完成", recoverable = false))
             return@flow
         }
-        val asr = Asr(models, variant.filePrefix)
+        val asr = Asr(models, variant.filePrefix, config.hotwords)
         val vad = SileroVad(models)
         val withSpeakers = speakersOn()
         val embedder = if (withSpeakers) Embedder(models) else null
@@ -129,7 +129,12 @@ class SherpaOnnxEngine(
         }
     }.flowOn(Dispatchers.Default)
 
-    private class Asr(models: ModelStore, prefix: String) : StreamingAsr, AutoCloseable {
+    /**
+     * [hotwords]: the user's 自訂詞彙. With any, decoding switches to modified beam search with the
+     * words boosted (docs/benchmark-hotwords.md, ADR-038): names right 43% → 74%, no false insertions.
+     */
+    private class Asr(models: ModelStore, prefix: String, hotwords: List<String> = emptyList()) : StreamingAsr, AutoCloseable {
+        private val boost = Hotwords.prepare(models, prefix, hotwords)
         private val recognizer = OnlineRecognizer(
             assetManager = null,
             config = OnlineRecognizerConfig(
@@ -143,6 +148,8 @@ class SherpaOnnxEngine(
                     tokens = models.file("$prefix-tokens.txt").path,
                     // 4 threads: phones are 3-5x slower than the benchmark PC, so compute matters more there.
                     numThreads = 4,
+                    modelingUnit = if (boost != null) "bpe" else "",
+                    bpeVocab = boost?.vocab?.path ?: "",
                 ),
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(false, 2.4f, 0f),
@@ -150,7 +157,10 @@ class SherpaOnnxEngine(
                     rule3 = EndpointRule(false, 0f, 20f),
                 ),
                 enableEndpoint = true,
-                decodingMethod = "greedy_search",
+                decodingMethod = if (boost != null) "modified_beam_search" else "greedy_search",
+                maxActivePaths = 4,
+                hotwordsFile = boost?.file?.path ?: "",
+                hotwordsScore = Hotwords.SCORE,
             ),
         )
         private val stream = recognizer.createStream("")

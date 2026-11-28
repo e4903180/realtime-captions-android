@@ -132,7 +132,7 @@ fun EnginePicker(
                 OutlinedButton(onClick = { onVocabulary(words) }, enabled = words != ui.vocabulary.joinToString("\n")) { Text("儲存", color = Ink) }
                 Text("目前 ${ui.vocabulary.size} 個詞", color = Sub, fontSize = 14.sp)
             }
-            Text("Azure 雲端會優先辨識成這些詞，下次按「開始」生效。離線模型還不支援，之後補上。", color = Sub, fontSize = 14.sp)
+            Text("離線和 Azure 雲端都會優先辨識成這些詞，下次按「開始」生效。離線用詞彙時會多用一點電。", color = Sub, fontSize = 14.sp)
             // 說話者 (ADR-027, ADR-033)
             Text("說話者", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {

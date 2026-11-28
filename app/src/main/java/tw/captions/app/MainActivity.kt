@@ -219,6 +219,7 @@ class MainActivity : ComponentActivity() {
         if (!BuildConfig.DEBUG || intent == null) return
         intent.getStringExtra("azure_env")?.let { viewModel.importAzureEnv(File(getExternalFilesDir(null), it)) }
         intent.getStringExtra("engine")?.let { viewModel.selectEngine(it) }
+        intent.getStringExtra("vocabulary")?.let { viewModel.setVocabulary(it) }
         intent.getStringExtra("debug_wav")?.let { name ->
             viewModel.stop()
             viewModel.useDebugWav(if (name.isEmpty()) null else File(getExternalFilesDir(null), name), showBanner = !intent.getBooleanExtra("quiet", false))

@@ -66,6 +66,14 @@ class SherpaAsr(
     /** Words to favour (one per line); switches to modified beam search. Needs bpe.vocab next to the model. */
     hotwords: File? = null,
     beam: Boolean = false,
+    /** Bonus per hotword token (sherpa-onnx default 1.5). */
+    hotwordsScore: Float = 1.5f,
+    /** How hotwords are split into model tokens: "bpe" or "cjkchar+bpe". */
+    hotwordsUnit: String = "bpe",
+    /** The model writes Simplified Chinese: convert Traditional hotwords before handing them over. */
+    hotwordsSimplified: Boolean = false,
+    /** Space out Chinese characters so each maps to its own BPE token (see [spaceCjk]). */
+    hotwordsSpaced: Boolean = false,
 ) : StreamingAsr, AutoCloseable {
     private val recognizer: OnlineRecognizer
     private val stream: OnlineStream
@@ -86,7 +94,7 @@ class SherpaAsr(
                     )
                     .setTokens(path(model.tokens))
                     .setNumThreads(numThreads)
-                    .apply { if (hotwords != null) setModelingUnit("bpe").setBpeVocab(File(dir, "bpe.vocab").path) }
+                    .apply { if (hotwords != null) setModelingUnit(hotwordsUnit).setBpeVocab(File(dir, "bpe.vocab").path) }
                     .build(),
             )
             .setEnableEndpoint(true)
@@ -99,7 +107,7 @@ class SherpaAsr(
             )
             .setDecodingMethod(if (hotwords != null || beam) "modified_beam_search" else "greedy_search")
             .setMaxActivePaths(4)
-            .apply { if (hotwords != null) setHotwordsFile(hotwords.path).setHotwordsScore(1.5f) }
+            .apply { if (hotwords != null) setHotwordsFile(hotwordsFile(hotwords, hotwordsSimplified, hotwordsSpaced).path).setHotwordsScore(hotwordsScore) }
             .build()
         recognizer = OnlineRecognizer(config)
         stream = recognizer.createStream()
@@ -249,4 +257,34 @@ class SherpaDenoiser(model: DenoiserModel, modelsDir: File, numThreads: Int = 1)
     override fun reset() = denoiser.reset()
 
     override fun close() = denoiser.release()
+}
+
+/** [list] as sherpa-onnx reads it: one word per line, optionally converted to Simplified Chinese (what X-ASR writes). */
+fun hotwordsFile(list: File, simplified: Boolean, spaced: Boolean = false): File {
+    if (!simplified && !spaced) return list
+    val words = list.readLines(Charsets.UTF_8).map { it.trim().removePrefix(BOM) }.filter { it.isNotEmpty() && !it.startsWith("#") }
+    return File.createTempFile("hotwords", ".txt").also {
+        it.deleteOnExit()
+        it.writeText(
+            words.joinToString("\n") { w ->
+                val s = if (simplified) com.github.houbb.opencc4j.util.ZhConverterUtil.toSimple(w) else w
+                if (spaced) spaceCjk(s) else s
+            },
+            Charsets.UTF_8,
+        )
+    }
+}
+
+private const val BOM = "\uFEFF"
+
+/**
+ * X-ASR's BPE has one token per Chinese character ("\u2581\u6797"), so "\u6797\u6021\u541B" would encode as "\u2581\u6797" + unknown:
+ * put a space between Chinese characters ("\u6797 \u6021 \u541B") so every character gets its own token.
+ */
+fun spaceCjk(word: String): String = buildString {
+    fun han(c: Char) = Character.UnicodeScript.of(c.code) == Character.UnicodeScript.HAN
+    for ((i, c) in word.withIndex()) {
+        if (i > 0 && c != ' ' && last() != ' ' && (han(c) || han(word[i - 1]))) append(' ')
+        append(c)
+    }
 }

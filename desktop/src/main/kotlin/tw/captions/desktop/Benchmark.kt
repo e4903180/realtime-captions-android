@@ -55,6 +55,13 @@ fun main(args: Array<String>) {
         latencyBreakdown(modelsDir, File(opt("--out") ?: "docs/latency.md"))
         return
     }
+    if ("--hotwords-test" in opts) {
+        hotwordsTest(
+            modelsDir, File(opt("--names") ?: "datasets/hotwords_names"), File(opt("--testdata") ?: "testdata"),
+            File(opt("--hotwords") ?: "datasets/hotwords_names/vocabulary.txt"), File(opt("--out") ?: "docs/benchmark-hotwords.md"),
+        )
+        return
+    }
     if ("--hotwords-sweep" in opts) {
         // Taiwan word list as hotwords (modified beam search) vs greedy and plain beam search.
         val dir = File(opt("--real") ?: "datasets/prepared")
