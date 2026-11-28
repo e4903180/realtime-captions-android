@@ -88,8 +88,13 @@ class TranscriptRecorder(
         private set
     private val before = existing.toMap().toMutableMap()
 
+    /** Set by [finish]: later corrections still change the text, but never the times. */
+    var finished = false
+        private set
+
     /** Updates from the current lines (id, speaker, text); returns true when something changed. */
     fun update(lines: List<Triple<Long, String?, String>>, nowMs: Long, recording: Boolean): Boolean {
+        @Suppress("NAME_SHADOWING") val recording = recording && !finished
         val now = (nowMs - transcript.startedMs) / 1000.0
         val out = transcript.lines.toMutableList()
         var changed = false
@@ -114,7 +119,10 @@ class TranscriptRecorder(
         return changed
     }
 
+    /** Ends the recording once; calling it again does nothing, so the duration cannot grow after stop. */
     fun finish(nowMs: Long) {
+        if (finished) return
+        finished = true
         transcript = transcript.copy(endedMs = nowMs)
     }
 
