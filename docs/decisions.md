@@ -357,5 +357,5 @@
   - 使用者選了人數：這一輪已說完的句子重新分組，門檻 0.55，人數是上限，保留 ADR-036 的凍結和整人改名規則；結果交回即時分群。
   - 新增 `PipelineConfig.shortLinesKeepLastSpeaker`（預設關），用來量測短句的影響。
 - **其他選項：** 固定門檻（真實錄音上不是拆人就是併人）；只合併、不拆分的保守重新分組（自動模式的找到人數大致正確：cvtw 2.3／2、TTS 2.1／2.3，所以先不做）。
-- **後果：** 自動模式下，即時分群偶爾把一個人拆成兩個字母時不會再被修正；請使用者選人數可以解決，設定頁已有提示。iPhone 要把 `assembler.recluster(threshold:speakers:)` 加 `syncSpeakers` 換成 `SpeakerPolicy.shared.afterFinal(assembler:clusterer:speakers:)`。
+- **後果：** 自動模式下，即時分群偶爾把一個人拆成兩個字母時不會再被修正；請使用者選人數可以解決，設定頁已有提示。iPhone 已改成呼叫 `SpeakerPolicy.shared.afterFinal(assembler:clusterer:speakers:)`（離線引擎傳即時分群，Azure 傳 nil），舊的 `syncSpeakers` 已移除。
 

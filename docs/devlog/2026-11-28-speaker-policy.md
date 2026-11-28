@@ -8,3 +8,7 @@
   - 不清除再開始一輪：上一輪的句子沒有動。
 - TTS 對話（新規則）：中文 92.7%、英文 95.2%，字母 0 次變更。
 - alimeeting 會議的分離實驗（短句不給字母 vs 音量過濾預設關）補測中。
+
+## iPhone 對齊
+
+- `CaptionViewModel` 每句定稿後和改人數時都改呼叫 `SpeakerPolicy.shared.afterFinal`，拿掉 `reclusterThreshold` 和 iosMain 的 `syncSpeakers`。人數「自動」時字母不再事後變動。

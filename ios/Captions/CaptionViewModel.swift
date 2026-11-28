@@ -38,12 +38,9 @@ final class CaptionViewModel: ObservableObject {
     @Published var speakerCount: Int = UserDefaults.standard.integer(forKey: "speakerCount") {
         didSet {
             UserDefaults.standard.set(speakerCount, forKey: "speakerCount")
-            apply(assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount)))
-            syncSpeakers()
+            apply(regroupSpeakers())
         }
     }
-    /// Shared with Android (ADR-036).
-    static let reclusterThreshold: Float = SpeakerRecluster.shared.DEFAULT_THRESHOLD
 
     enum BackgroundFilter: String, CaseIterable, Identifiable {
         case off = "OFF", dim = "DIM", hide = "HIDE"
@@ -294,10 +291,11 @@ final class CaptionViewModel: ObservableObject {
         scheduleProofreading()
     }
 
-    /// The live grouping takes over the regrouped speakers, so A stays A on the next line.
-    private func syncSpeakers() {
-        guard let offline, offline.hasSpeakers else { return }
-        IosBridgeKt.syncSpeakers(clusterer: offline.clusterer, assembler: assembler)
+    /// Shared rule with Android (ADR-039): with 說話人數「自動」 letters come from live grouping only;
+    /// with a number of people every line is grouped again and the live grouping takes it over.
+    private func regroupSpeakers() -> CaptionState {
+        let clusterer = offline.flatMap { $0.hasSpeakers ? $0.clusterer : nil }
+        return SpeakerPolicy.shared.afterFinal(assembler: assembler, clusterer: clusterer, speakers: Int32(speakerCount))
     }
 
     func clear() {
@@ -479,9 +477,7 @@ final class CaptionViewModel: ObservableObject {
             }
         }
         if sawFinal {
-            // Regroup every line by voice, so earlier speaker mistakes get fixed too (ADR-027).
-            state = assembler.recluster(threshold: Self.reclusterThreshold, speakers: Int32(speakerCount))
-            syncSpeakers()
+            state = regroupSpeakers()
         }
         apply(state)
         if sawFinal { scheduleProofreading() }
