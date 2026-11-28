@@ -194,6 +194,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Follows the current recording; kept after stop so later corrections still reach it. */
     private var recorder: tw.captions.core.TranscriptRecorder? = null
     private var unsavedChanges = 0
+    private var transcriptEnded = true
     private var lastSaveMs = 0L
 
     private fun lineRows(): List<Triple<Long, String?, String>> =
@@ -213,6 +214,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         )
         unsavedChanges = 0
         lastSaveMs = System.currentTimeMillis()
+        transcriptEnded = false
     }
 
     /** Called whenever caption lines change. Saves every 3 lines or 20 s, so a crash loses little. */
@@ -235,6 +237,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun finishTranscript() {
         val r = recorder ?: return
+        if (transcriptEnded) return
+        transcriptEnded = true
         r.update(lineRows(), System.currentTimeMillis(), recording = true)
         r.finish(System.currentTimeMillis())
         saveTranscript()

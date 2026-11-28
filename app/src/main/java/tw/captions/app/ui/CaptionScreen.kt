@@ -75,7 +75,7 @@ fun CaptionScreen(
                 .safeDrawingPadding(),
         ) {
             Box(Modifier.weight(1f)) {
-                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize(), onNameLine)
+                if (ui.tvMode) TvCaptions(ui, Modifier.fillMaxSize()) else Captions(ui, Modifier.fillMaxSize().padding(top = 48.dp), onNameLine)
                 // 看電視 toggle, top right (same place as on iPhone, ADR-032).
                 FilterChip(
                     selected = ui.tvMode,
@@ -116,10 +116,10 @@ fun CaptionScreen(
                 )
             }
             ui.cloudNotice?.let {
-                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
+                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             ui.proofreadNotice?.let {
-                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp)
+                Text(it, color = LocalPalette.current.warn, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
             }
             ui.captions.error?.let {
                 Text(
@@ -283,6 +283,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.speakerPrefix(speak
     withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append("${name ?: speaker!!.label}：") }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Controls(
     ui: UiState,
@@ -307,7 +308,7 @@ private fun Controls(
         ) {
             Text("引擎：$current  ▾", fontSize = 18.sp, color = Ink)
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
             TextButton(onClick = onOpenTranscripts) { Text("紀錄", fontSize = 18.sp, color = Ink) }
             TextButton(onClick = onOpenSettings) { Text("雲端設定", fontSize = 18.sp, color = Ink) }
             TextButton(onClick = onOpenPeople) { Text("認得的人（${ui.people.size}）", fontSize = 18.sp, color = Ink) }

@@ -160,7 +160,7 @@ private fun regionName(id: String) = AzureSpeechEngine.REGIONS.firstOrNull { it.
 @Composable
 private fun UsageCard(ui: UiState, onSetPrices: (CloudUsage.Prices) -> Unit, onReset: () -> Unit) {
     var range by remember { mutableStateOf(CloudUsage.Range.MONTH) }
-    var price by remember { mutableStateOf(ui.usagePrices.azurePerHour.toString()) }
+    var price by remember { mutableStateOf("%.2f".format(ui.usagePrices.azurePerHour)) }
     var confirmReset by remember { mutableStateOf(false) }
     val today = ui.today
     val seconds = ui.usage.seconds(range, today)
