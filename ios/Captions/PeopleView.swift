@@ -88,7 +88,7 @@ struct NameSpeakerView: View {
                     Text(line.text).lineLimit(3).foregroundColor(.secondary)
                 }
                 Section("是誰") {
-                    TextField("名字，例如 媽媽", text: $name)
+                    TextField("名字，例如 小明", text: $name)
                     if !store.people.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
