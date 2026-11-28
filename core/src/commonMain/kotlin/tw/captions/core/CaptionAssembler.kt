@@ -70,6 +70,8 @@ class CaptionAssembler(
     private val clockSec: () -> Double = defaultClock(),
 ) {
     companion object {
+        /** How many of the newest lines regrouping may still relabel one by one (ADR-036). */
+        const val DEFAULT_OPEN_LINES = 4
         const val NO_SPEECH_HINT = "沒有聽到說話聲，請確認麥克風有開，或靠近一點說話"
     }
 
@@ -84,9 +86,11 @@ class CaptionAssembler(
     private var joining: Boolean? = null
 
     /** Utterances that make up each line in [CaptionState.lines] (same order), so one can be corrected later. */
-    private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>)
+    private class LineParts(val id: Long, val parts: MutableList<Pair<Int, String>>, val live: SpeakerId? = null)
     private val parts = ArrayList<LineParts>()
     private var nextLineId = 0L
+    /** First line of the current listening session; [recluster] leaves older lines alone. */
+    private var sessionStartLineId = 0L
     private var finals = 0
 
     /**
@@ -102,6 +106,7 @@ class CaptionAssembler(
         state = CaptionState()
         speakerNames.clear()
         parts.clear()
+        sessionStartLineId = nextLineId
         finals = 0
         lastPartial = ""
         silentRounds = 0
@@ -132,7 +137,11 @@ class CaptionAssembler(
 
     private fun handle(event: TranscriptEvent): CaptionState {
         state = when (event) {
-            TranscriptEvent.Listening -> state.copy(isListening = true, error = null)
+            TranscriptEvent.Listening -> {
+                // Each engine start sends this once: lines from before are settled history.
+                sessionStartLineId = nextLineId
+                state.copy(isListening = true, error = null)
+            }
 
             is TranscriptEvent.AudioLevel -> state.copy(audioLevel = event.level.coerceIn(0f, 1f))
 
@@ -187,7 +196,7 @@ class CaptionAssembler(
                         )
                     }
                     else -> {
-                        parts += LineParts(nextLineId++, mutableListOf(seq to text))
+                        parts += LineParts(nextLineId++, mutableListOf(seq to text), event.speaker)
                         while (parts.size > maxLines) parts.removeAt(0)
                         (state.lines + CaptionLine(text, event.speaker, event.background && backgroundMode == BackgroundMode.DIM, event.speakerName, event.voice)).takeLast(maxLines)
                     }
@@ -224,7 +233,7 @@ class CaptionAssembler(
     fun replaceLineText(lineId: Long, text: String): CaptionState {
         val index = parts.indexOfFirst { it.id == lineId }
         if (index < 0 || text.isBlank()) return state
-        parts[index] = LineParts(lineId, mutableListOf(-1 to text))
+        parts[index] = LineParts(lineId, mutableListOf(-1 to text), parts[index].live)
         return setLineText(index, text)
     }
 
@@ -234,15 +243,27 @@ class CaptionAssembler(
         return state
     }
 
+    /** [recluster] with the usual four open lines; the two-argument form the iPhone app calls (Swift sees no default arguments). */
+    fun recluster(threshold: Float = SpeakerRecluster.DEFAULT_THRESHOLD, speakers: Int = 0): CaptionState =
+        recluster(threshold, speakers, DEFAULT_OPEN_LINES)
+
     /**
-     * Groups all finished lines by voice again and updates their speaker letters
-     * ([SpeakerRecluster], ADR-027). Lines without a voice profile, background lines and lines
-     * with a registered name keep their label. [speakers] > 0 fixes the number of people.
+     * Groups this session's finished lines by voice again and updates their speaker letters
+     * ([SpeakerRecluster], ADR-027, ADR-036). Lines from earlier sessions, lines without a voice
+     * profile, background lines and lines with a registered name keep their label. Only the last
+     * [openLines] lines may change on their own; older lines change only together with every other
+     * older line of the same letter (one person renamed as a whole), so text the reader has
+     * already taken in does not jump between people. [speakers] > 0 is the most people there are.
      */
-    fun recluster(threshold: Float = 0.45f, speakers: Int = 0): CaptionState {
+    fun recluster(threshold: Float, speakers: Int, openLines: Int): CaptionState {
         val lines = state.lines
-        val voices = lines.map { if (it.background || it.speakerName != null) null else it.voice }
-        val relabeled = SpeakerRecluster.relabel(voices, lines.map { it.speaker }, threshold, speakers)
+        val inSession = lines.indices.map { (parts.getOrNull(it)?.id ?: -1) >= sessionStartLineId }
+        val voices = lines.mapIndexed { i, l -> if (!inSession[i] || l.background || l.speakerName != null) null else l.voice }
+        val sessionCount = inSession.count { it }
+        var seen = 0
+        val frozen = lines.indices.map { i -> inSession[i] && seen++ < sessionCount - openLines }
+        val live = lines.indices.map { parts.getOrNull(it)?.live ?: lines[it].speaker }
+        val relabeled = SpeakerRecluster.relabel(voices, lines.map { it.speaker }, threshold, speakers, live, frozen)
         if (relabeled == lines.map { it.speaker }) return state
         state = state.copy(lines = lines.mapIndexed { i, l -> if (l.speaker == relabeled[i]) l else l.copy(speaker = relabeled[i]) })
         return state

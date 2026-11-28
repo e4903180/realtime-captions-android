@@ -1,6 +1,7 @@
 package tw.captions.desktop
 
 import org.json.JSONObject
+import tw.captions.core.SpeakerClusterer
 import tw.captions.core.CaptionAssembler
 import tw.captions.core.PipelineConfig
 import tw.captions.core.TextProcessor
@@ -212,6 +213,8 @@ data class FileResult(
     val speakerAcc: Double,
     val speakers: Int,
     val rtf: Double,
+    /** Times a line already on screen changed its speaker letter (what readers notice). */
+    val labelFlips: Int = 0,
 )
 
 fun runFile(
@@ -229,9 +232,17 @@ fun runFile(
     secondPassStats: SecondPassStats? = null,
     /** Regroup all lines by voice at the end (ADR-027): threshold, and fixed speaker count (0 = auto). */
     recluster: Pair<Float, Int>? = null,
+    /**
+     * Regroup like the app does (ADR-027): after every finished line, then hand the groups back to
+     * the live clustering. Threshold, and fixed speaker count (0 = auto).
+     */
+    appRegroup: Pair<Float, Int>? = null,
 ): FileResult {
     val audio = readWav16k(File(testdata, "wavs/${truth.id}.wav"))
-    val pipeline = stack.newPipeline(registry)
+    val clusterer = SpeakerClusterer(stack.setup.speakerThreshold)
+    val pipeline = stack.newPipeline(registry, clusterer)
+    val shownLabel = mutableMapOf<Long, Int?>()
+    var labelFlips = 0
     // Line joining (mergeGapSec) runs on the simulated listener clock, like the app's caption screen.
     // maxLines unbounded: long meetings have more than the screen's 200 lines, and all are scored.
     var clock = 0.0
@@ -276,6 +287,16 @@ fun runFile(
                         } else {
                             secondPassStats?.let { it.kept++ }
                         }
+                    }
+                    if (appRegroup != null) {
+                        assembler.recluster(appRegroup.first, appRegroup.second)
+                        clusterer.replaceProfiles(assembler.speakerProfiles())
+                    }
+                    assembler.state.lines.forEachIndexed { k, l ->
+                        val id = assembler.lineId(k)
+                        val now = l.speaker?.index
+                        if (id in shownLabel && shownLabel[id] != now) labelFlips++
+                        shownLabel[id] = now
                     }
                     val lines = assembler.state.lines
                     // This utterance's own text: a new line, or the part joined onto the last line.
@@ -324,8 +345,8 @@ fun runFile(
     wall += (System.nanoTime() - t0) / 1e9
     handle(tail, audio.size / 16000.0, wall)
 
-    if (recluster != null) {
-        val lines = assembler.recluster(recluster.first, recluster.second).lines
+    if (recluster != null || appRegroup != null) {
+        val lines = (if (recluster != null) assembler.recluster(recluster.first, recluster.second) else assembler.state).lines
         for (k in utterances.indices) utterances[k] = utterances[k].copy(speaker = lines[lineOf[k]].speaker?.index)
     }
     // References may be Simplified (AISHELL, AliMeeting); score both sides in Taiwan Traditional.
@@ -353,6 +374,7 @@ fun runFile(
         if (truth.segments.any { it.speaker == "?" }) Double.NaN else speakerAccuracy(utterances, truth.segments),
         utterances.mapNotNull { it.speaker }.distinct().size,
         busy / (audio.size / 16000.0),
+        labelFlips,
     )
 }
 

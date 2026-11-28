@@ -12,15 +12,25 @@ import kotlin.math.sqrt
 object SpeakerRecluster {
     /**
      * New speaker per line. [voices] has one entry per line (null: no profile, keeps [current]).
-     * [weights] (seconds of speech) let long lines count more. With [speakers] > 0 the lines are
-     * grouped into exactly that many people; otherwise groups merge while their average
-     * similarity is at least [threshold].
+     * Groups merge while their average similarity is at least [threshold]; with [speakers] > 0
+     * they also keep merging until there are at most that many people.
+     *
+     * Letters: each group takes the letter its lines were first shown with ([live], the label the
+     * live grouping gave when the line finished; defaults to [current]), matching the biggest
+     * overlaps first, so a group can never take another group's letter just because it is bigger.
+     * Groups left over get letters no line uses.
+     *
+     * Lines marked in [frozen] (older lines the reader has already taken in) only change together
+     * with every other frozen line of the same letter: a whole person can be renamed (one person
+     * split in two, merged back), but single old lines never jump between people.
      */
     fun relabel(
         voices: List<FloatArray?>,
         current: List<SpeakerId?>,
-        threshold: Float = 0.45f,
+        threshold: Float = DEFAULT_THRESHOLD,
         speakers: Int = 0,
+        live: List<SpeakerId?> = current,
+        frozen: List<Boolean>? = null,
     ): List<SpeakerId?> {
         val idx = voices.indices.filter { voices[it] != null }
         if (idx.size < 2) return current
@@ -43,34 +53,57 @@ object SpeakerRecluster {
                 val l = link(groups[i], groups[j])
                 if (l > best) { best = l; bi = i; bj = j }
             }
-            val done = if (speakers > 0) groups.size <= speakers else best < threshold
+            // A given number of people is a maximum: similar groups still merge below it.
+            val done = best < threshold && (speakers <= 0 || groups.size <= speakers)
             if (done) break
             groups[bi].addAll(groups[bj])
             groups.removeAt(bj)
         }
 
-        // Keep the letters people already see: give each group the label most of its lines had,
-        // biggest groups first; groups left over get unused labels.
-        val groupOf = IntArray(n)
-        groups.forEachIndexed { g, members -> members.forEach { groupOf[it] = g } }
-        val order = groups.indices.sortedByDescending { groups[it].size }
-        val used = mutableSetOf<Int>()
-        val label = IntArray(groups.size) { -1 }
-        for (g in order) {
-            val votes = groups[g].mapNotNull { current[idx[it]]?.index }.filter { it !in used }
-            val pick = votes.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
-            if (pick != null) { label[g] = pick; used += pick }
+        // Letters: biggest overlap between a group and a first-shown letter wins, one letter per group.
+        val overlaps = mutableListOf<Triple<Int, Int, Int>>() // group, letter, lines
+        groups.forEachIndexed { g, members ->
+            members.mapNotNull { (live.getOrNull(idx[it]) ?: current[idx[it]])?.index }
+                .groupingBy { it }.eachCount()
+                .forEach { (letter, count) -> overlaps += Triple(g, letter, count) }
         }
+        overlaps.sortWith(compareByDescending<Triple<Int, Int, Int>> { it.third }.thenBy { it.second })
+        val label = IntArray(groups.size) { -1 }
+        val used = mutableSetOf<Int>()
+        for ((g, letter, _) in overlaps) {
+            if (label[g] >= 0 || letter in used) continue
+            label[g] = letter
+            used += letter
+        }
+        // Letters still shown on lines outside the regrouping stay reserved for their people.
+        val reserved = current.filterIndexed { i, _ -> voices[i] == null }.mapNotNull { it?.index }.toSet()
         var next = 0
-        for (g in order) if (label[g] < 0) {
-            while (next in used) next++
+        for (g in groups.indices.sortedByDescending { groups[it].size }) if (label[g] < 0) {
+            while (next in used || next in reserved) next++
             label[g] = next
             used += next
         }
-        val out = current.toMutableList()
-        idx.forEachIndexed { k, line -> out[line] = SpeakerId(label[groupOf[k]]) }
+        val proposed = current.toMutableList()
+        idx.forEachIndexed { k, line -> proposed[line] = SpeakerId(label[groupOf(groups, k)]) }
+        if (frozen == null) return proposed
+
+        // Frozen lines move only as a whole letter: all of that letter's frozen lines agree.
+        val moves = mutableMapOf<SpeakerId?, MutableSet<SpeakerId?>>()
+        for (i in current.indices) if (frozen.getOrElse(i) { false } && voices[i] != null) {
+            moves.getOrPut(current[i]) { mutableSetOf() } += proposed[i]
+        }
+        val out = proposed.toMutableList()
+        for (i in current.indices) if (frozen.getOrElse(i) { false } && voices[i] != null) {
+            val targets = moves[current[i]]!!
+            out[i] = if (targets.size == 1) targets.first() else current[i]
+        }
         return out
     }
+
+    /** Similarity two groups need to count as one person (average linkage); see docs/benchmark-speakers.md. */
+    const val DEFAULT_THRESHOLD = 0.60f
+
+    private fun groupOf(groups: List<List<Int>>, k: Int): Int = groups.indexOfFirst { k in it }
 
     private fun normalized(x: FloatArray): FloatArray {
         var s = 0f

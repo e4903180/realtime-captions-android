@@ -106,7 +106,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         /** Same as iPhone (ADR-027). */
-        const val RECLUSTER_THRESHOLD = 0.45f
+        const val RECLUSTER_THRESHOLD = tw.captions.core.SpeakerRecluster.DEFAULT_THRESHOLD
 
         /** Azure accepts a few hundred phrases; more also stops helping. */
         const val MAX_VOCABULARY = 200
@@ -126,8 +126,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val clusterer = tw.captions.core.SpeakerClusterer()
 
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer, focusOn = { _ui.value.backgroundMode != tw.captions.core.BackgroundMode.OFF }),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer, focusOn = { _ui.value.backgroundMode != tw.captions.core.BackgroundMode.OFF }),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() },

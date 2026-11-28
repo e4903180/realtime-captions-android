@@ -83,7 +83,7 @@ data class PipelineConfig(
      * Lines this much quieter than the conversation are marked as background (TV, other people
      * nearby). Null turns the focus filter off. See [FocusTracker].
      */
-    val focusMarginDb: Float? = 8f,
+    val focusMarginDb: Float? = null,
     /**
      * Keep up to this many seconds of each utterance's audio (from just before the first speech to
      * the end) so a more accurate whole-sentence model can recognise it again after the line is
@@ -258,7 +258,10 @@ class StreamingPipeline(
             val speaker = when {
                 background || embedder == null -> null
                 voice != null -> clusterer.assign(voice, allowNew = speech.size >= config.minNewSpeakerSec * config.sampleRate)
-                else -> provisional ?: lastSpeaker
+                // Too short for a voice profile: say nothing rather than guess. A short reply ("好")
+                // is usually the other person, and the previous speaker's letter would also join it
+                // onto their line.
+                else -> null
             }
             if (speaker != null) lastSpeaker = speaker
             finishedAudio = utteranceAudio?.takeIf { it.size > 0 }?.toArray()
