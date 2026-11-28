@@ -8,7 +8,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import android.util.Log
@@ -28,6 +27,8 @@ import tw.captions.core.SpeechEngine
 
 data class UiState(
     val captions: CaptionState = CaptionState(),
+    /** Stable id of each line in [captions] (same order), for list keys and long-press naming. */
+    val lineIds: List<Long> = emptyList(),
     val running: Boolean = false,
     val engineId: String = EngineCatalog.DEFAULT_ID,
     val fontSizeSp: Int = 36,
@@ -144,6 +145,25 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
+    /** Transcript files are written one at a time, in order, so an older version never overwrites a newer one. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val transcriptWriter = Dispatchers.IO.limitedParallelism(1)
+
+    /** Newest unsaved version of each transcript; a queued write saves whatever is newest when it runs. */
+    private val pendingSaves = java.util.concurrent.ConcurrentHashMap<String, tw.captions.core.Transcript>()
+
+    /** Transcripts the user deleted: a write still queued for one of them must not bring it back. */
+    private val deletedTranscripts: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    private fun persistTranscript(t: tw.captions.core.Transcript) {
+        if (t.id in deletedTranscripts) return
+        pendingSaves[t.id] = t
+        ioScope.launch(transcriptWriter) {
+            val latest = pendingSaves.remove(t.id) ?: return@launch
+            if (latest.id !in deletedTranscripts) transcriptStore.save(latest)
+        }
+    }
+
     private val assembler = CaptionAssembler(TextProcessor.default(converter = OpenCcTaiwan), mergeGapSec = 1.5)
 
     init {
@@ -160,6 +180,21 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         UiState(engineId = prefs.getString("engine", null)?.takeIf { id -> engines.any { it.id == id } } ?: EngineCatalog.DEFAULT_ID),
     )
     val ui: StateFlow<UiState> = _ui.asStateFlow()
+
+    /**
+     * Every UI update goes through here: when the caption lines change, their ids are taken from
+     * the assembler at the same moment, so [UiState.lineIds] always matches [UiState.captions].
+     */
+    private inline fun MutableStateFlow<UiState>.update(function: (UiState) -> UiState) {
+        while (true) {
+            val prev = value
+            var next = function(prev)
+            if (next.captions.lines !== prev.captions.lines || next.lineIds.size != next.captions.lines.size) {
+                next = next.copy(lineIds = List(next.captions.lines.size) { assembler.lineId(it) })
+            }
+            if (compareAndSet(prev, next)) return
+        }
+    }
 
     init {
         val mode = runCatching { tw.captions.core.BackgroundMode.valueOf(prefs.getString("background_mode", "OFF")!!) }.getOrDefault(tw.captions.core.BackgroundMode.OFF)
@@ -183,9 +218,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             .getOrDefault(tw.captions.app.proofread.Proofreader.Model.OPUS)
         val (proofRequests, proofCost) = usageStore.claudeThisMonth()
         _ui.update { it.copy(proofreadEnabled = prefs.getBoolean("proofread_enabled", false), proofreadModel = proofModel, proofreadRequests = proofRequests, proofreadCost = proofCost) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(transcriptWriter) {
             val all = transcriptStore.loadAll()
-            _ui.update { it.copy(transcripts = all) }
+            // Keep a transcript that was started (and shown) while the files were still loading.
+            _ui.update { s ->
+                val loaded = all.map { it.id }.toSet()
+                s.copy(transcripts = (all + s.transcripts.filter { it.id !in loaded }).filter { it.id !in deletedTranscripts }.sortedByDescending { it.startedMs })
+            }
         }
     }
 
@@ -194,7 +233,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     /** Follows the current recording; kept after stop so later corrections still reach it. */
     private var recorder: tw.captions.core.TranscriptRecorder? = null
     private var unsavedChanges = 0
-    private var transcriptEnded = true
     private var lastSaveMs = 0L
 
     private fun lineRows(): List<Triple<Long, String?, String>> =
@@ -214,7 +252,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         )
         unsavedChanges = 0
         lastSaveMs = System.currentTimeMillis()
-        transcriptEnded = false
     }
 
     /** Called whenever caption lines change. Saves every 3 lines or 20 s, so a crash loses little. */
@@ -231,14 +268,15 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (t.lines.isEmpty()) return
         unsavedChanges = 0
         lastSaveMs = System.currentTimeMillis()
+        if (t.id in deletedTranscripts) return
         _ui.update { s -> s.copy(transcripts = (listOf(t) + s.transcripts.filter { it.id != t.id }).sortedByDescending { it.startedMs }) }
-        ioScope.launch { transcriptStore.save(t) }
+        persistTranscript(t)
     }
 
+    /** Ends the current recording. Does nothing when it already ended (the recorder ignores a second finish). */
     private fun finishTranscript() {
         val r = recorder ?: return
-        if (transcriptEnded) return
-        transcriptEnded = true
+        if (r.finished) return
         r.update(lineRows(), System.currentTimeMillis(), recording = true)
         r.finish(System.currentTimeMillis())
         saveTranscript()
@@ -246,22 +284,29 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun renameTranscript(id: String, title: String) {
         val t = _ui.value.transcripts.firstOrNull { it.id == id } ?: return
-        val renamed = t.copy(title = title.trim().ifEmpty { null })
-        if (recorder?.transcript?.id == id) recorder?.rename(renamed.title)
+        val current = recorder?.takeIf { it.transcript.id == id }
+        current?.rename(title.trim().ifEmpty { null })
+        // The recorder may hold newer lines than the list does.
+        val renamed = current?.transcript ?: t.copy(title = title.trim().ifEmpty { null })
         _ui.update { s -> s.copy(transcripts = s.transcripts.map { if (it.id == id) renamed else it }) }
-        ioScope.launch { transcriptStore.save(renamed) }
+        persistTranscript(renamed)
     }
 
     fun deleteTranscript(id: String) {
         if (recorder?.transcript?.id == id) recorder = null
+        deletedTranscripts += id
+        pendingSaves.remove(id)
         _ui.update { s -> s.copy(transcripts = s.transcripts.filter { it.id != id }) }
-        ioScope.launch { transcriptStore.delete(id) }
+        ioScope.launch(transcriptWriter) { transcriptStore.delete(id) }
     }
 
     fun deleteAllTranscripts() {
+        recorder?.let { deletedTranscripts += it.transcript.id }
         recorder = null
+        deletedTranscripts += _ui.value.transcripts.map { it.id }
+        pendingSaves.clear()
         _ui.update { it.copy(transcripts = emptyList()) }
-        ioScope.launch { transcriptStore.deleteAll() }
+        ioScope.launch(transcriptWriter) { transcriptStore.deleteAll() }
     }
 
     fun setTranscriptsEnabled(on: Boolean) {
@@ -368,9 +413,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(people = registry.people.map { p -> p.id to p.name }) }
     }
 
-    /** "This line is <name>": learns the voice from that line. Voice profiles stay on the phone. */
-    fun nameLine(index: Int, name: String) {
-        val line = _ui.value.captions.lines.getOrNull(index) ?: return
+    /**
+     * "This line is <name>": learns the voice from that line. Voice profiles stay on the phone.
+     * [lineId] was taken at the long-press; the line may have moved since (old lines dropped).
+     */
+    fun nameLine(lineId: Long, name: String) {
+        val index = _ui.value.captions.lines.indices.firstOrNull { assembler.lineId(it) == lineId } ?: return
+        val line = _ui.value.captions.lines[index]
         val voice = line.voice ?: return
         val first = registry.isEmpty
         registry.add(name.trim(), voice)
@@ -383,8 +432,14 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun forgetPerson(id: Int) {
+        val name = registry.people.firstOrNull { it.id == id }?.name
         registry.remove(id)
         savePeople()
+        // Lines already on screen go back to their letters (unless someone else has the same name).
+        if (name != null && registry.people.none { it.name == name }) {
+            _ui.update { it.copy(captions = assembler.forgetSpeaker(name)) }
+            recordLines()
+        }
     }
 
     /** New name for a known person. If someone else already has that name, the two become one person. */
@@ -620,6 +675,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _ui.update { it.copy(running = true) }
+        sessionActive = true
         beginTranscript(engine.id)
         if (EngineCatalog.byId(engine.id)?.paid == true) {
             cloudTimer?.cancel()
@@ -747,10 +803,16 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (wasRunning) start()
     }
 
+    /** True from start() until the session ends; stop() without a running session must not touch the transcript. */
+    private var sessionActive = false
+
     private fun markStopped() {
         cloudTimer?.cancel()
         flushUsage()
-        finishTranscript()
+        if (sessionActive) {
+            sessionActive = false
+            finishTranscript()
+        }
         _ui.update { it.copy(running = false, cloudSeconds = null, captions = it.captions.copy(isListening = false)) }
     }
 
