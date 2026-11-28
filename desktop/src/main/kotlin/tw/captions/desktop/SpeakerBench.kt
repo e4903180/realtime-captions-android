@@ -19,6 +19,9 @@ fun speakerReclusterBenchmark(modelsDir: File, dir: File, out: File, quick: Bool
         "Regroup, threshold 0.35" to { _ -> 0.35f to 0 },
         "Regroup, threshold 0.45" to { _ -> 0.45f to 0 },
         "Regroup, threshold 0.55" to { _ -> 0.55f to 0 },
+        "Regroup, threshold 0.60" to { _ -> 0.60f to 0 },
+        "Regroup, threshold 0.65" to { _ -> 0.65f to 0 },
+        "Regroup, threshold 0.70" to { _ -> 0.70f to 0 },
         "Regroup, number of people given" to { n -> 0.45f to n },
     )
     val rows = mutableListOf<Pair<String, List<FileResult>>>()
