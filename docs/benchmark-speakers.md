@@ -19,7 +19,7 @@
 | Old: regroup 0.60 on 自動 (main before ADR-039) | en | 10 | 95.2% | 2.5 / 2.5 | 0.0 |
 | Old: regroup 0.60 on 自動 (main before ADR-039) | zh | 20 | 92.7% | 2.1 / 2.3 | 0.0 |
 
-真實錄音請看下方「修改後」表格：其中「只即時分群」就是新的「自動」，「0.55＋給定人數」就是新的指定人數。cvtw 85.1%／96.3%，aishell 98.8%／98.8%，字母變更都是 0。alimeeting 的分離實驗見下方（補測中）。
+真實錄音請看下方「修改後」表格：其中「只即時分群」就是新的「自動」，「0.55＋給定人數」就是新的指定人數。cvtw 85.1%／96.3%，aishell 98.8%／98.8%，字母變更都是 0。alimeeting 的分離實驗見下方。
 
 產生方式：`:desktop --speaker-recluster`（2026-11-28）。離線引擎 X-ASR 160 ms＋CAM++，句尾靜音 0.6 秒，4 執行緒，100 ms 音訊區塊。
 
@@ -109,6 +109,18 @@ TTS 對話沒有跨輪次和短句，所以修改前後在同一門檻下的數�
   - 太短沒有聲紋的句子不再沿用上一個人的字母，算成沒有字母；
   - 音量背景過濾的預設從 8 dB 改成關。
   - 要另外各自量。
+
+### alimeeting 分離實驗（ADR-040）
+
+只跑 alimeeting 3 個檔、自動模式。掉分的原因是「短句不給字母」，和音量過濾無關。
+
+| Setup | Dataset | Files | Speaker accuracy | Speakers found / true (avg) | Letter changes on shown lines (per file) |
+|---|---|---|---|---|---|
+| 自動 = live only (new) | alimeeting | 3 | 28.8% | 5.3 / 4.0 | 0.0 |
+| 自動, short lines keep the last letter | alimeeting | 3 | 41.4% | 5.3 / 4.0 | 0.0 |
+| 自動, loudness filter 8 dB | alimeeting | 3 | 28.4% | 5.3 / 4.0 | 0.0 |
+| 自動, both (before ADR-036) | alimeeting | 3 | 40.8% | 5.3 / 4.0 | 0.0 |
+| Old: regroup 0.60 on 自動 (main before ADR-039) | alimeeting | 3 | 26.6% | 14.0 / 4.0 | 17.7 |
 
 ### 修改前（舊 core，App 模式 bench）
 
