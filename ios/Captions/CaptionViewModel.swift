@@ -109,6 +109,42 @@ final class CaptionViewModel: ObservableObject {
     /// Saves this start…stop as a transcript (ADR-029).
     private var recorder: TranscriptRecorder?
 
+    /// Which start…stop the events belong to: bumped on every start, so late events and
+    /// second-pass revisions from an earlier session never land on the new one's numbering.
+    private var session = 0
+
+    /// What the engines hand back, tagged with their session.
+    private enum Delivery {
+        case events([TranscriptEvent])
+        case revision(Int, String)
+    }
+    private typealias Tagged = (session: Int, delivery: Delivery)
+
+    /// One queue for everything engines deliver, read in order on the main actor (separate
+    /// `Task { @MainActor }` hops may run out of order).
+    private let deliveries: AsyncStream<Tagged>.Continuation
+
+    init() {
+        var continuation: AsyncStream<Tagged>.Continuation!
+        let stream = AsyncStream<Tagged> { continuation = $0 }
+        deliveries = continuation
+        Task { [weak self] in
+            for await item in stream {
+                guard let self else { return }
+                guard item.session == self.session else { continue }
+                switch item.delivery {
+                case .events(let events): self.handle(events)
+                case .revision(let n, let text): self.revise(n, text)
+                }
+            }
+        }
+        audio.onStopped = { [weak self] message in
+            guard let self, self.running else { return }
+            self.stop()
+            self.error = message
+        }
+    }
+
     func toggle() {
         if running { stop() } else { Task { await start() } }
     }
@@ -127,6 +163,9 @@ final class CaptionViewModel: ObservableObject {
             error = "請到「設定 > 隱私權與安全性 > 麥克風」允許「即時字幕」使用麥克風"
             return
         }
+        session += 1
+        let deliver = Self.eventHandler(deliveries, session: session)
+        var begun: CaptionEngine?
         do {
             let engine: CaptionEngine
             var useCloud = engineId == EngineInfo.azureId
@@ -147,7 +186,7 @@ final class CaptionViewModel: ObservableObject {
                 engine = azure
             } else {
                 if !models.isReady { try await models.download() }
-                let wantSecond = SecondPassModel.isEnabled && secondPassStore.isReady
+                let wantSecond = SecondPassModel.isEnabled && SecondPassModel.available && secondPassStore.isReady
                 let wantSpeakers = speakersOn
                 let wantBackground = effectiveBackground != .off
                 assembler.backgroundMode = IosBridgeKt.backgroundModeOf(name: effectiveBackground.rawValue)
@@ -160,8 +199,8 @@ final class CaptionViewModel: ObservableObject {
                     }.value
                 }
                 guard let offline else { return }
-                offline.onRevision = { [weak self] n, text in
-                    Task { @MainActor in self?.revise(n, text) }
+                offline.onRevision = { [deliveries, session] n, text in
+                    deliveries.yield((session: session, delivery: .revision(n, text)))
                 }
                 engine = offline
             }
@@ -171,12 +210,17 @@ final class CaptionViewModel: ObservableObject {
             proofreadNotice = nil
             finalsSeen = 0
             recorder = TranscriptStore.isEnabled ? TranscriptRecorder(engine: EngineInfo.byId(engineId).name, existing: lines) : nil
-            try engine.begin(onEvents: Self.eventHandler(model: self))
-            try audio.start(onSamples: Self.audioHandler(engine: engine, model: self))
+            try engine.begin(onEvents: deliver)
+            begun = engine
+            try audio.start(onSamples: Self.audioHandler(engine: engine, deliver: deliver))
             self.engine = engine
             running = true
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
+            // Nothing may keep running after a failed start: the microphone, the engine, the recording.
+            audio.stop()
+            begun?.finish(onEvents: deliver)
+            recorder = nil
             self.error = error.localizedDescription
         }
     }
@@ -243,7 +287,7 @@ final class CaptionViewModel: ObservableObject {
         running = false
         level = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        engine?.finish(onEvents: Self.eventHandler(model: self))
+        engine?.finish(onEvents: Self.eventHandler(deliveries, session: session))
         engine = nil
         recorder?.finish()
         scheduleProofreading()
@@ -306,16 +350,13 @@ final class CaptionViewModel: ObservableObject {
     }
 
     /// Built outside the main actor: the audio callback runs on the audio thread.
-    private nonisolated static func audioHandler(engine: CaptionEngine, model: CaptionViewModel) -> ([Float]) -> Void {
-        let deliver = eventHandler(model: model)
+    private nonisolated static func audioHandler(engine: CaptionEngine, deliver: @escaping ([TranscriptEvent]) -> Void) -> ([Float]) -> Void {
         return { samples in engine.feed(samples, onEvents: deliver) }
     }
 
-    /// Hands pipeline events (from the decoding queue) to the main actor.
-    private nonisolated static func eventHandler(model: CaptionViewModel) -> ([TranscriptEvent]) -> Void {
-        return { [weak model] events in
-            Task { @MainActor in model?.handle(events) }
-        }
+    /// Hands pipeline events (from the decoding queue) to the main actor, in order.
+    private nonisolated static func eventHandler(_ deliveries: AsyncStream<Tagged>.Continuation, session: Int) -> ([TranscriptEvent]) -> Void {
+        return { events in deliveries.yield((session: session, delivery: .events(events))) }
     }
 
     // MARK: Correcting finished lines (second pass ADR-025, proof-reading ADR-026)
@@ -409,7 +450,9 @@ final class CaptionViewModel: ObservableObject {
                 return
             }
             failuresInARow += 1
-            let wait = min(60, 5 * pow(2, Double(failuresInARow - 1)))
+            var wait = min(60, 5 * pow(2, Double(failuresInARow - 1)))
+            // Rate-limited: the server says when to come back (at most 10 minutes).
+            if let asked = (error as? Proofreader.Failure)?.retryAfter { wait = min(600, max(wait, asked.rounded(.up))) }
             retryAfter = Date().addingTimeInterval(wait)
             if failuresInARow >= 2 { showProofreadNotice("AI 校稿\(reason)，\(Int(wait)) 秒後重試", sticky: false) }
         }
@@ -417,6 +460,13 @@ final class CaptionViewModel: ObservableObject {
     }
 
     private func handle(_ events: [TranscriptEvent]) {
+        // Most batches are only the meter (several per second): update just the level.
+        if events.allSatisfy({ $0 is TranscriptEventAudioLevel }) {
+            var state = assembler.state
+            for e in events { state = assembler.onEvent(event: e) }
+            if level != state.audioLevel { level = state.audioLevel }
+            return
+        }
         var state = assembler.state
         var sawFinal = false
         for e in events {
@@ -449,13 +499,16 @@ final class CaptionViewModel: ObservableObject {
             // Keeps following corrections after stop, until the next start.
             recorder?.update(newLines, recording: running)
         }
-        stableText = state.stableText
-        tentativeText = state.tentativeText
-        currentSpeaker = IosBridgeKt.currentSpeakerLabelOf(state: state)
-        continuesLastLine = state.continuesLastLine && !newLines.isEmpty
-        currentBackground = state.currentBackground
-        level = state.audioLevel
-        hint = state.hint
-        if let e = state.error { error = e }
+        // Every assignment to @Published redraws the view, even with the same value.
+        if stableText != state.stableText { stableText = state.stableText }
+        if tentativeText != state.tentativeText { tentativeText = state.tentativeText }
+        let speaker = IosBridgeKt.currentSpeakerLabelOf(state: state)
+        if currentSpeaker != speaker { currentSpeaker = speaker }
+        let continues = state.continuesLastLine && !newLines.isEmpty
+        if continuesLastLine != continues { continuesLastLine = continues }
+        if currentBackground != state.currentBackground { currentBackground = state.currentBackground }
+        if level != state.audioLevel { level = state.audioLevel }
+        if hint != state.hint { hint = state.hint }
+        if let e = state.error, error != e { error = e }
     }
 }

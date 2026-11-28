@@ -16,7 +16,9 @@ enum SecondPassModel {
     )
 
     /// False until the model is chosen and pinned by SHA-256.
-    static var available: Bool { remote.bytes > 0 }
+    static var available: Bool {
+        remote.bytes > 0 && remote.sha256.count == 64 && remote.sha256.allSatisfy(\.isHexDigit)
+    }
 
     static func model(in dir: URL) -> URL { dir.appendingPathComponent("sp-model.onnx") }
     static func tokens(in dir: URL) -> URL { dir.appendingPathComponent("sp-tokens.txt") }

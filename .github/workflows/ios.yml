@@ -3,9 +3,13 @@ name: iOS
 on:
   push:
     branches: [main]
-    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle/**"]
+    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle.properties", "gradle/**"]
   pull_request:
-    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle/**"]
+    paths: ["core/**", "ios/**", ".github/workflows/ios.yml", "settings.gradle.kts", "gradle.properties", "gradle/**"]
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ios:

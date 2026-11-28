@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Saved transcripts (ADR-029): every start…stop is one transcript, kept only on the phone
 /// (Application Support/transcripts, one JSON file each). No audio is kept.
@@ -92,10 +93,21 @@ final class TranscriptStore: ObservableObject {
 
     let directory: URL
 
+    private let writer = FileWriter(label: "tw.captions.transcripts")
+
     private init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        directory = base.appendingPathComponent("transcripts", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var dir = base.appendingPathComponent("transcripts", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // "Only on this phone": keep transcripts out of iCloud and computer backups.
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try dir.setResourceValues(values)
+        } catch {
+            FileWriter.log.error("transcripts folder: \(error.localizedDescription, privacy: .public)")
+        }
+        directory = dir
         load()
     }
 
@@ -111,10 +123,10 @@ final class TranscriptStore: ObservableObject {
 
     func save(_ t: Transcript) {
         if let i = all.firstIndex(where: { $0.id == t.id }) { all[i] = t } else { all.insert(t, at: 0) }
-        let data = try? JSONEncoder().encode(t)
-        let target = url(t.id)
-        DispatchQueue.global(qos: .utility).async {
-            try? data?.write(to: target, options: [.atomic, .completeFileProtection])
+        do {
+            writer.write(try JSONEncoder().encode(t), to: url(t.id))
+        } catch {
+            FileWriter.log.error("encode transcript: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -134,20 +146,91 @@ final class TranscriptStore: ObservableObject {
 
     func delete(_ id: UUID) {
         all.removeAll { $0.id == id }
-        try? FileManager.default.removeItem(at: url(id))
+        // Through the writer, so a save still queued cannot bring the file back.
+        writer.remove(url(id))
     }
 
     func deleteAll() {
-        for t in all { try? FileManager.default.removeItem(at: url(t.id)) }
+        for t in all { writer.remove(url(t.id)) }
         all = []
     }
 
-    /// Writes an export into the temporary folder for the share sheet.
+    /// Writes an export into the temporary folder for the share sheet (when the user taps it).
     func exportFile(_ t: Transcript, srt: Bool) -> URL {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(t.fileStem + (srt ? ".srt" : ".txt"))
-        try? (srt ? t.srt : t.plainText).write(to: file, atomically: true, encoding: .utf8)
+        do {
+            try (srt ? t.srt : t.plainText).write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            FileWriter.log.error("export: \(error.localizedDescription, privacy: .public)")
+        }
         return file
     }
+}
+
+/// Writes small files off the main thread on one serial queue. If a file is saved again before
+/// its earlier save was written, only the newest snapshot is written. Failures are logged.
+final class FileWriter {
+    static let log = Logger(subsystem: "tw.captions", category: "storage")
+
+    private enum Change {
+        case write(Data)
+        case remove
+    }
+
+    private let queue: DispatchQueue
+    private let excludeFromBackup: Bool
+    private let lock = NSLock()
+    /// Changes not yet done, by file; read and cleared on `queue`.
+    private var waiting: [URL: Change] = [:]
+
+    init(label: String, excludeFromBackup: Bool = false) {
+        queue = DispatchQueue(label: label, qos: .utility)
+        self.excludeFromBackup = excludeFromBackup
+    }
+
+    func write(_ data: Data, to url: URL) { schedule(.write(data), url) }
+    func remove(_ url: URL) { schedule(.remove, url) }
+
+    private func schedule(_ change: Change, _ url: URL) {
+        lock.lock()
+        let alreadyQueued = waiting.updateValue(change, forKey: url) != nil
+        lock.unlock()
+        guard !alreadyQueued else { return }
+        queue.async { [self] in
+            lock.lock()
+            let change = waiting.removeValue(forKey: url)
+            lock.unlock()
+            switch change {
+            case .write(let data)?:
+                do {
+                    // Readable after the first unlock, so saving keeps working while the phone is locked.
+                    try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    if excludeFromBackup {
+                        // An atomic write makes a new file, so the flag is set again each time.
+                        var values = URLResourceValues()
+                        values.isExcludedFromBackup = true
+                        var target = url
+                        try target.setResourceValues(values)
+                    }
+                } catch {
+                    Self.log.error("write \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            case .remove?:
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch CocoaError.fileNoSuchFile {
+                    // never written: nothing to remove
+                } catch {
+                    Self.log.error("remove \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            case nil:
+                break
+            }
+        }
+    }
+
+    /// Waits until everything scheduled so far is done (tests).
+    func waitUntilDone() { queue.sync {} }
 }
 
 /// Follows the caption lines of one start…stop and saves them as a transcript.

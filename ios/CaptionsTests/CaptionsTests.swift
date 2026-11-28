@@ -85,6 +85,56 @@ final class CaptionsTests: XCTestCase {
         XCTAssertGreaterThan(cjk, 10, "expected Chinese text, got: \(allText)")
     }
 
+    func testProofreaderReadsAnswer() throws {
+        let lines: [(id: Int64, speaker: String?, text: String)] = [(id: 7, speaker: "A", text: "我們坐出組車去")]
+        func response(stop: String, text: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["stop_reason": stop, "content": [["type": "text", "text": text]]])
+        }
+        let fixed = try Proofreader.corrections(from: response(stop: "end_turn", text: #"{"lines":[{"id":7,"text":"我們坐出租車去"}]}"#), lines: lines)
+        XCTAssertEqual(fixed, [7: "我們坐出租車去"])
+        XCTAssertEqual(try Proofreader.corrections(from: response(stop: "refusal", text: ""), lines: lines), [:])
+
+        // Cut off or unreadable: a retryable failure, so the lines are not marked as checked.
+        for data in [try response(stop: "max_tokens", text: #"{"lines":[{"id":7,"te"#),
+                     try response(stop: "end_turn", text: "not json"),
+                     Data("<html>".utf8)] {
+            XCTAssertThrowsError(try Proofreader.corrections(from: data, lines: lines)) { error in
+                XCTAssertEqual((error as? Proofreader.Failure)?.permanent, false)
+            }
+        }
+    }
+
+    func testRetryAfterHeader() {
+        XCTAssertEqual(Proofreader.retryAfter("30"), 30)
+        XCTAssertNil(Proofreader.retryAfter(nil))
+        XCTAssertNil(Proofreader.retryAfter("soon"))
+        let later = Proofreader.retryAfter("Wed, 21 Oct 2099 07:28:00 GMT")
+        XCTAssertNotNil(later)
+        XCTAssertGreaterThan(later ?? 0, 1000)
+    }
+
+    func testFileWriterKeepsNewestSnapshot() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("writer-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("a.json")
+        let writer = FileWriter(label: "test.writer", excludeFromBackup: true)
+        for i in 0..<50 { writer.write(Data("\(i)".utf8), to: file) }
+        writer.waitUntilDone()
+        XCTAssertEqual(String(data: try Data(contentsOf: file), encoding: .utf8), "49")
+        XCTAssertEqual(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        writer.write(Data("late".utf8), to: file)
+        writer.remove(file)
+        writer.waitUntilDone()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testSettingsMatchAndroid() {
+        XCTAssertEqual(OfflineEngine.chunkSamples, 320)   // 20 ms, ADR-021
+        // The second-pass model is not pinned yet: no switch for it.
+        XCTAssertEqual(SecondPassModel.available, SecondPassModel.remote.bytes > 0 && SecondPassModel.remote.sha256 != "SECOND_PASS_SHA256")
+    }
+
     func testKeyVaultRoundTrip() throws {
         let name = "test_key_\(UUID().uuidString)"
         XCTAssertNil(KeyVault.get(name))
@@ -94,8 +144,10 @@ final class CaptionsTests: XCTestCase {
         XCTAssertEqual(status, errSecSuccess)
         XCTAssertEqual(KeyVault.get(name), "abcd1234")
         XCTAssertEqual(KeyVault.hint(name), "••••1234")
+        XCTAssertTrue(KeyVault.has(name))
         KeyVault.remove(name)
         XCTAssertNil(KeyVault.get(name))
+        XCTAssertFalse(KeyVault.has(name))
     }
 
     func testAzureSpeakerLabels() {

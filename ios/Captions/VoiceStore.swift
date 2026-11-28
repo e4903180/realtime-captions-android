@@ -1,5 +1,6 @@
 import CaptionsCore
 import Foundation
+import os
 
 /// 認得的人 (ADR-034): people whose voice the app remembers, so their lines show their name.
 /// Voice prints (speaker embeddings) are kept only on the phone, never audio.
@@ -30,6 +31,13 @@ final class VoiceStore: ObservableObject {
         if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode([Person].self, from: data) {
             people = saved
             syncRegistry()
+            // Saved by an earlier version, before voice prints were kept out of backups.
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            var existing = file
+            do { try existing.setResourceValues(values) } catch {
+                FileWriter.log.error("voices backup flag: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -89,11 +97,14 @@ final class VoiceStore: ObservableObject {
         })
     }
 
+    /// Voice prints stay on this phone: never in iCloud or computer backups.
+    private let writer = FileWriter(label: "tw.captions.voices", excludeFromBackup: true)
+
     private func save() {
-        let data = try? JSONEncoder().encode(people)
-        let target = file
-        DispatchQueue.global(qos: .utility).async {
-            try? data?.write(to: target, options: [.atomic, .completeFileProtection])
+        do {
+            writer.write(try JSONEncoder().encode(people), to: file)
+        } catch {
+            FileWriter.log.error("encode voices: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

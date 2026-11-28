@@ -30,13 +30,16 @@ enum Proofreader {
     }
 
     /// Ready to use: switched on and a key is saved.
-    static var isActive: Bool { isEnabled && KeyVault.get(KeyVault.anthropicKey) != nil }
+    /// Checked after every finished line, so it asks KeyVault's cache rather than the Keychain.
+    static var isActive: Bool { isEnabled && KeyVault.has(KeyVault.anthropicKey) }
 
     struct Failure: LocalizedError {
         let errorDescription: String?
         /// Retrying will not help (wrong key, no permission, no credit): proof-reading pauses
         /// until the key changes. Anything else (timeout, network, busy) is retried.
         var permanent = false
+        /// The server said how long to wait (retry-after on 429 / busy), in seconds.
+        var retryAfter: TimeInterval?
     }
 
     private static let api = URL(string: "https://api.anthropic.com/v1/messages")!
@@ -77,27 +80,41 @@ enum Proofreader {
             UsageLog.shared.addClaudeFailure(model: model.rawValue)
             throw Failure(errorDescription: e.code == .timedOut ? "等太久沒回應" : "連不上 Anthropic")
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
         guard status == 200 else {
             UsageLog.shared.addClaudeFailure(model: model.rawValue)
-            throw Failure(errorDescription: problem(status: status, data: data), permanent: isPermanent(status: status, data: data))
+            throw Failure(errorDescription: problem(status: status, data: data), permanent: isPermanent(status: status, data: data),
+                          retryAfter: retryAfter(http?.value(forHTTPHeaderField: "retry-after")))
         }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        if let usage = json["usage"] as? [String: Any] {
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let usage = json?["usage"] as? [String: Any] {
             UsageLog.shared.addClaude(
-                model: json["model"] as? String ?? model.rawValue,
+                model: json?["model"] as? String ?? model.rawValue,
                 inputTokens: (usage["input_tokens"] as? NSNumber)?.intValue ?? 0,
                 outputTokens: (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
             )
         }
-        // A declined request has no usable answer: keep the captions as they are.
-        if json["stop_reason"] as? String == "refusal" { return [:] }
+        return try corrections(from: data, lines: lines)
+    }
+
+    /// Reads the API response. A cut-off or unreadable answer throws a retryable Failure, so the
+    /// lines are sent again rather than marked as checked; a declined request changes nothing.
+    static func corrections(from data: Data, lines: [(id: Int64, speaker: String?, text: String)]) throws -> [Int64: String] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Failure(errorDescription: "回覆格式不對")
+        }
+        switch json["stop_reason"] as? String {
+        case "refusal": return [:]   // no usable answer: keep the captions as they are
+        case "max_tokens": throw Failure(errorDescription: "回覆被截斷")
+        default: break
+        }
         let text = (json["content"] as? [[String: Any]] ?? [])
             .filter { $0["type"] as? String == "text" }
             .compactMap { $0["text"] as? String }
             .joined()
         guard let answer = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-              let items = answer["lines"] as? [[String: Any]] else { return [:] }
+              let items = answer["lines"] as? [[String: Any]] else { throw Failure(errorDescription: "回覆格式不對") }
         var out: [Int64: String] = [:]
         for item in items {
             guard let id = (item["id"] as? NSNumber)?.int64Value, let t = item["text"] as? String,
@@ -120,6 +137,17 @@ enum Proofreader {
         } catch {
             return "連不上 Anthropic，請確認網路"
         }
+    }
+
+    /// Seconds from a retry-after header (seconds or an HTTP date); nil if missing or unreadable.
+    static func retryAfter(_ value: String?) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        if let seconds = Double(value) { return max(0, seconds) }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "GMT")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return f.date(from: value).map { max(0, $0.timeIntervalSinceNow) }
     }
 
     private static func isPermanent(status: Int, data: Data) -> Bool {

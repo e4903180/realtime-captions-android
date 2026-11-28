@@ -5,7 +5,8 @@ import Foundation
 /// Audio arrives on the audio thread; decoding runs on one serial queue; events are handed back
 /// through `onEvents`.
 final class OfflineEngine {
-    static let chunkSamples = Sherpa.sampleRate / 10 // 100 ms, like the Android app
+    /// 20 ms (320 samples), like the Android app (ADR-021): the first words appear ~0.04 s sooner than with 100 ms.
+    static let chunkSamples = Sherpa.sampleRate / 50
     static let speakerThreshold: Float = 0.5
 
     private let queue = DispatchQueue(label: "tw.captions.pipeline", qos: .userInitiated)
