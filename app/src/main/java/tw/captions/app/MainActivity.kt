@@ -220,6 +220,10 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("azure_env")?.let { viewModel.importAzureEnv(File(getExternalFilesDir(null), it)) }
         intent.getStringExtra("engine")?.let { viewModel.selectEngine(it) }
         intent.getStringExtra("vocabulary")?.let { viewModel.setVocabulary(it) }
+        // Name the speaker of line N (0 = first on screen), e.g. --ei name_line 0 --es name 小明 (screenshots).
+        intent.getStringExtra("name")?.let { name ->
+            viewModel.ui.value.lineIds.getOrNull(intent.getIntExtra("name_line", 0))?.let { viewModel.nameLine(it, name) }
+        }
         intent.getStringExtra("debug_wav")?.let { name ->
             viewModel.stop()
             viewModel.useDebugWav(if (name.isEmpty()) null else File(getExternalFilesDir(null), name), showBanner = !intent.getBooleanExtra("quiet", false))
