@@ -70,6 +70,8 @@ class CaptionAssembler(
     private val clockSec: () -> Double = defaultClock(),
 ) {
     companion object {
+        /** How many of the newest lines regrouping may still relabel one by one (ADR-036). */
+        const val DEFAULT_OPEN_LINES = 4
         const val NO_SPEECH_HINT = "沒有聽到說話聲，請確認麥克風有開，或靠近一點說話"
     }
 
@@ -241,6 +243,10 @@ class CaptionAssembler(
         return state
     }
 
+    /** [recluster] with the usual four open lines; the two-argument form the iPhone app calls (Swift sees no default arguments). */
+    fun recluster(threshold: Float = SpeakerRecluster.DEFAULT_THRESHOLD, speakers: Int = 0): CaptionState =
+        recluster(threshold, speakers, DEFAULT_OPEN_LINES)
+
     /**
      * Groups this session's finished lines by voice again and updates their speaker letters
      * ([SpeakerRecluster], ADR-027, ADR-036). Lines from earlier sessions, lines without a voice
@@ -249,7 +255,7 @@ class CaptionAssembler(
      * older line of the same letter (one person renamed as a whole), so text the reader has
      * already taken in does not jump between people. [speakers] > 0 is the most people there are.
      */
-    fun recluster(threshold: Float = SpeakerRecluster.DEFAULT_THRESHOLD, speakers: Int = 0, openLines: Int = 4): CaptionState {
+    fun recluster(threshold: Float, speakers: Int, openLines: Int): CaptionState {
         val lines = state.lines
         val inSession = lines.indices.map { (parts.getOrNull(it)?.id ?: -1) >= sessionStartLineId }
         val voices = lines.mapIndexed { i, l -> if (!inSession[i] || l.background || l.speakerName != null) null else l.voice }
