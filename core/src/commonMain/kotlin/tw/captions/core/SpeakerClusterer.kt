@@ -28,14 +28,21 @@ class SpeakerClusterer(
     private val centroids = mutableListOf<FloatArray>()
     private val counts = mutableListOf<Int>()
 
-    /** Set from another thread by [replaceProfiles]; taken over at the next [assign] / [peek]. */
-    @Volatile
-    private var pending: Map<SpeakerId, Profile>? = null
+    /**
+     * Set from another thread by [replaceProfiles]; taken over at the next [assign] / [peek].
+     * Never cleared by the reading thread, only marked as applied, so a newer hand-over that
+     * arrives while an older one is being applied cannot be lost.
+     */
+    private class Pending(val profiles: Map<SpeakerId, Profile>, val version: Int)
 
-    val speakerCount: Int get() = (pending?.size) ?: centroids.size
+    @Volatile
+    private var pending: Pending? = null
+    private var appliedVersion = 0
+
+    val speakerCount: Int get() = pending?.takeIf { it.version != appliedVersion }?.profiles?.size ?: centroids.size
 
     fun reset() {
-        pending = null
+        appliedVersion = pending?.version ?: 0
         ids.clear()
         centroids.clear()
         counts.clear()
@@ -47,12 +54,14 @@ class SpeakerClusterer(
      * from the next utterance on.
      */
     fun replaceProfiles(profiles: Map<SpeakerId, Profile>) {
-        pending = profiles
+        pending = Pending(profiles, (pending?.version ?: 0) + 1)
     }
 
     private fun applyPending() {
-        val p = pending ?: return
-        pending = null
+        val taken = pending ?: return
+        if (taken.version == appliedVersion) return
+        appliedVersion = taken.version
+        val p = taken.profiles
         ids.clear()
         centroids.clear()
         counts.clear()

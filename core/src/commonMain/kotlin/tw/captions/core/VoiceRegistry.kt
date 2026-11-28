@@ -19,7 +19,9 @@ class VoiceRegistry(
 
     // Replaced as a whole on every change, so the recognizer's thread always reads a whole list
     // while the screen adds or removes people.
+    @kotlin.concurrent.Volatile
     private var list: List<Person> = emptyList()
+    @kotlin.concurrent.Volatile
     private var nextId = 0
 
     val people: List<Person> get() = list

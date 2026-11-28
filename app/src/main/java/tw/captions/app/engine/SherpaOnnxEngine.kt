@@ -56,6 +56,8 @@ class SherpaOnnxEngine(
      * finished lines (ADR-027), and kept between stop and start so letters stay the same.
      */
     private val clusterer: SpeakerClusterer = SpeakerClusterer(speakerThreshold),
+    /** Loudness-based background filter (ADR-020): only while the user chose 淡化／隱藏. */
+    private val focusOn: () -> Boolean = { false },
 ) : SpeechEngine {
     override val id = variant.id
     override val displayName = variant.displayName
@@ -101,7 +103,7 @@ class SherpaOnnxEngine(
             // the assembler also joins a person's utterances less than 1.5 s apart (ADR-024).
             val pipeline = StreamingPipeline(
                 asr, vad, embedder, clusterer,
-                config = tw.captions.core.PipelineConfig(vadEndpointSilenceSec = 0.6f),
+                config = tw.captions.core.PipelineConfig(vadEndpointSilenceSec = 0.6f, focusMarginDb = if (focusOn()) 8f else null),
                 enhancer = denoiser,
                 registry = if (withSpeakers) registry else null,
             )

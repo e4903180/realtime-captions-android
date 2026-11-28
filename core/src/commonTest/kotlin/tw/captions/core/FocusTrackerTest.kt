@@ -56,7 +56,7 @@ class FocusInPipelineTest {
 
     @Test
     fun quietTalkBetweenTurnsIsMarkedBackgroundAndCanBeHidden() {
-        val p = StreamingPipeline(OneCharAsr(), EnergyVad(), config = PipelineConfig(vadEndpointSilenceSec = null))
+        val p = StreamingPipeline(OneCharAsr(), EnergyVad(), config = PipelineConfig(vadEndpointSilenceSec = null, focusMarginDb = 8f))
         fun say(level: Float, chunks: Int) = (List(chunks) { level } + List(4) { 0f }).flatMap { v -> p.feed(FloatArray(1600) { v }) }
         val events = say(0.5f, 10) + say(0.05f, 10) + say(0.5f, 10) // loud, TV 20 dB lower, loud
         val finals = events.filterIsInstance<TranscriptEvent.Final>()

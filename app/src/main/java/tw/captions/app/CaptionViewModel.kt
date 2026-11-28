@@ -126,8 +126,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val clusterer = tw.captions.core.SpeakerClusterer()
 
     val engines: List<SpeechEngine> = listOf(
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
-        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X160, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer, focusOn = { _ui.value.backgroundMode != tw.captions.core.BackgroundMode.OFF }),
+        SherpaOnnxEngine(models, openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() }, variant = SherpaOnnxEngine.Variant.X480, registry = registry, speakersOn = { _ui.value.speakersOn }, clusterer = clusterer, focusOn = { _ui.value.backgroundMode != tw.captions.core.BackgroundMode.OFF }),
         AzureSpeechEngine(
             credentials = { vault.get(KeyVault.AZURE_KEY)?.let { it to (vault.getPlain(KeyVault.AZURE_REGION) ?: "eastasia") } },
             openInput = { debugWav?.let { WavFileInput(it) } ?: openMic() },
